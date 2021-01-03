@@ -133,7 +133,7 @@ impl Configurator {
                 MessageBody {
                     opcode: msg.opcode().to_string(),
                     path: MessagePath::Conversation(context_id),
-                    payload: Err((CONFIGURATOR_WRITE_ERROR, format!("{:?}", e))),
+                    payload: Err((CONFIGURATOR_READ_ERROR, format!("{:?}", e))),
                 }
             }
         }
@@ -172,22 +172,24 @@ impl Configurator {
         msg:UiWalletAddressesRequest,
         context_id:u64,
     ) -> MessageBody {
-
         match self.get_wallet_addresses(msg.db_password) {
-            Ok(addresses) => UiWalletAddressesResponse{
-                    consuming_wallet_address: addresses.0,
-                    earning_wallet_address: addresses.1}.tmb(context_id),
-            Err(e) => {unimplemented!()
-                // warning!(self.logger, "Failed to change password: {:?}", e);
+            Ok(addresses) => UiWalletAddressesResponse {
+                consuming_wallet_address: addresses.0,
+                earning_wallet_address: addresses.1
+            }.tmb(context_id),
+            Err(error) => {
+                unimplemented!()
+                // warning!(self.logger, "Failed to obtain wallet addresses: {:?}", e);
                 // MessageBody {
                 //     opcode: msg.opcode().to_string(),
                 //     path: MessagePath::Conversation(context_id),
-                //     payload: Err((CONFIGURATOR_WRITE_ERROR, format!("{:?}", e)))
-                }
+                //     payload: Err((error.0, format!("{:?}", error.1)))
+                //}
             }
         }
+    }
 
-    fn get_wallet_addresses(&self,db_password:String)->Result<(String,String), String>{
+    fn get_wallet_addresses(&self,db_password:String)->Result<(String,String),(u64,String)>{
         let mnemonic = match self.persistent_config.mnemonic_seed(&db_password){
             Ok(mnemonic_opt) => match mnemonic_opt{
                 None => unimplemented!(), // return Err("Wallets must be generated before asking info about them".to_string()),
@@ -526,7 +528,7 @@ mod tests {
             MessageBody {
                 opcode: "checkPassword".to_string(),
                 path: MessagePath::Conversation(4321),
-                payload: Err((CONFIGURATOR_WRITE_ERROR, "NotPresent".to_string()))
+                payload: Err((CONFIGURATOR_READ_ERROR, "NotPresent".to_string()))
             }
         );
         TestLogHandler::new()
