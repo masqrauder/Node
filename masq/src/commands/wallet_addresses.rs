@@ -23,7 +23,7 @@ impl WalletAddressesCommand {
         })
     }
 }
-fn wallet_addresses_subcommand()-> App<'static, 'static>{
+pub fn wallet_addresses_subcommand()-> App<'static, 'static>{
     SubCommand::with_name("wallet_addresses")
         .about("XXXXXXXXXXXXXXXXXXXXXXXXXX")
         .arg(Arg::with_name ("db-password")

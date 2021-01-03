@@ -31,6 +31,7 @@ pub const KEY_PAIR_CONSTRUCTION_ERROR: u64 = CONFIGURATOR_PREFIX | 5;
 pub const BAD_PASSWORD_ERROR: u64 = CONFIGURATOR_PREFIX | 6;
 pub const ALREADY_INITIALIZED_ERROR: u64 = CONFIGURATOR_PREFIX | 7;
 pub const DERIVATION_PATH_ERROR: u64 = CONFIGURATOR_PREFIX | 8;
+pub const MNEMONIC_PHRASE_ERROR: u64 = CONFIGURATOR_PREFIX | 9;
 
 pub struct Configurator {
     persistent_config: Box<dyn PersistentConfiguration>,
@@ -172,19 +173,18 @@ impl Configurator {
         msg:UiWalletAddressesRequest,
         context_id:u64,
     ) -> MessageBody {
-        match self.get_wallet_addresses(msg.db_password) {
+        match self.get_wallet_addresses(msg.db_password.clone()) {
             Ok(addresses) => UiWalletAddressesResponse {
                 consuming_wallet_address: addresses.0,
                 earning_wallet_address: addresses.1
             }.tmb(context_id),
             Err(error) => {
-                unimplemented!()
-                // warning!(self.logger, "Failed to obtain wallet addresses: {:?}", e);
-                // MessageBody {
-                //     opcode: msg.opcode().to_string(),
-                //     path: MessagePath::Conversation(context_id),
-                //     payload: Err((error.0, format!("{:?}", error.1)))
-                //}
+                warning!(self.logger, "Failed to obtain wallet addresses: {}, {:?}", error.0,error.1);
+                MessageBody {
+                    opcode: msg.opcode().to_string(),
+                    path: MessagePath::Conversation(context_id),
+                    payload: Err((error.0, error.1))
+                }
             }
         }
     }
@@ -195,7 +195,7 @@ impl Configurator {
                 None => unimplemented!(), // return Err("Wallets must be generated before asking info about them".to_string()),
                 Some(mnemonic) => mnemonic
             }
-            Err(e) => unimplemented!()
+            Err(e) => return Err((MNEMONIC_PHRASE_ERROR, format!("{:?}",e)))
         };
         let derivation_path = match self.persistent_config.consuming_wallet_derivation_path(){
             Ok(deriv_path_opt) => match deriv_path_opt{
@@ -420,6 +420,7 @@ mod tests {
     use crate::sub_lib::wallet::Wallet;
     use bip39::{Language, Mnemonic};
     use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, DEFAULT_CHAIN_ID};
+    use crate::node_configurator::configurator::MNEMONIC_PHRASE_ERROR;
 
     #[test]
     fn constructor_connects_with_database() {
@@ -665,6 +666,27 @@ mod tests {
                 }
             );
         assert_eq!(ui_gateway_recording.len(), 1);
+    }
+
+    #[test]
+    fn handle_wallet_addresses_can_process_error(){
+        init_test_logging();
+        let persistent_config = PersistentConfigurationMock::new().mnemonic_seed_result(Err(
+            PersistentConfigError::NotPresent),
+        );
+        let subject = make_subject(Some(persistent_config));
+        let msg = UiWalletAddressesRequest{ db_password: "some password".to_string() };
+
+        let result = subject.handle_wallet_addresses(msg,1234);
+
+        assert_eq!(result,MessageBody{
+            opcode: "walletAddresses".to_string(),
+            path: MessagePath::Conversation(1234),
+            payload: Err((MNEMONIC_PHRASE_ERROR,"NotPresent".to_string()))
+        });
+        TestLogHandler::new().exists_log_containing(
+            r#"WARN: Configurator: Failed to obtain wallet addresses: 281474976710665, "NotPresent""#,
+        );
     }
 
     #[test]
