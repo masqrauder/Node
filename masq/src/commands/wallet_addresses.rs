@@ -102,7 +102,7 @@ mod tests {
     }
 
     #[test]
-    fn wallet_address_command_with_a_password_right() {
+    fn wallet_address_command_with_password_right() {
         let transact_params_arc = Arc::new(Mutex::new(vec![]));
         let mut context = CommandContextMock::new()
             .transact_params(&transact_params_arc)
