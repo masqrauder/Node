@@ -611,6 +611,36 @@ the requested language, including non-ASCII Unicode characters encoded in UTF-8 
 
 `earningWalletAddress` is the address of the generated earning wallet.
 
+#### `walletAddresses`
+##### Direction: Request
+##### Correspondent: Node
+##### Layout:
+```
+"payload": {
+    "dbPassword": <string>,
+}
+```
+##### Description:
+This message directs the Node to look for two pieces of information, the existing wallet addresses. For consuming wallet, it will be computed from the mnemonic seed and the stored derivation path (chosen when generate-wallets was to be run). For earning wallet, that datum can be found in the database directly. Both addresses are reported back to the UI then. If those two wallets do not exist yet, an error message is propagated.
+`dbPassword` is the current database password. If this is incorrect, the process cannot end successfully. 
+
+#### `walletAddresses`
+##### Direction: Response
+##### Correspondent: Node
+##### Layout:
+```
+"payload": {
+    "consumingWalletAddress": <string>,
+    "earningWalletAddress": <string>
+}
+```
+##### Description:
+This message carries the pair of wallet addresses that were generated in the past.
+
+`consumingWalletAddress` is the address of the generated consuming wallet.
+
+`earningWalletAddress` is the address of the generated earning wallet.
+
 #### `newPassword`
 ##### Direction: Broadcast
 ##### Correspondent: Node
