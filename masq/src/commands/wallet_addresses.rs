@@ -18,16 +18,16 @@ impl WalletAddressesCommand {
         Ok(Self {
             db_password: matches
                 .value_of("db-password")
-                .expect("wallet-addresses: Clipy: internal error")
+                .expect("db-password is not properly required")
                 .to_string(),
         })
     }
 }
 pub fn wallet_addresses_subcommand()-> App<'static, 'static>{
     SubCommand::with_name("wallet_addresses")
-        .about("XXXXXXXXXXXXXXXXXXXXXXXXXX")
+        .about("Provides both addresses of created wallets. If no such wallets, generate-wallets command is where to start.")
         .arg(Arg::with_name ("db-password")
-            .help ("XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXt")
+            .help ("The current database password (a password must be set to use this command)")
             .index (1)
             .required (true)
             .case_insensitive(false)
@@ -41,10 +41,11 @@ impl Command for WalletAddressesCommand {
         };
         let msg: UiWalletAddressesResponse = transaction(input, context, 1000)?;
                writeln!(context.stdout(),
-                        "Your consuming wallet address: {}  \
-                         Your earning wallet address: {}",
-                        msg.consuming_wallet_address,
-                        msg.earning_wallet_address).expect("writeln! failed");
+                        "Your consuming wallet address: {}", msg.consuming_wallet_address)
+                   .expect("writeln! failed");
+               writeln!(context.stdout(),
+                        "Your   earning wallet address: {}", msg.earning_wallet_address)
+                   .expect("writeln! failed");
                Ok(())
     }
     fn as_any(&self) -> &dyn Any {

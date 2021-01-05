@@ -196,7 +196,7 @@ impl Configurator {
         }
         let mnemonic = match self.persistent_config.mnemonic_seed(&db_password){
             Ok(mnemonic_opt) => match mnemonic_opt{
-                None => return Err((CONFIGURATOR_READ_ERROR,"Wallets must be generated prior demanding info on them".to_string())),
+                None => return Err((CONFIGURATOR_READ_ERROR,"Wallets must be generated prior demanding info on them (use generate-wallets first)".to_string())),
                 Some(mnemonic) => mnemonic
             }
             Err(e) => return Err((MNEMONIC_PHRASE_ERROR, format!("{:?}",e)))
