@@ -55,7 +55,7 @@ impl CommandFactory for CommandFactoryReal {
             },
             "shutdown" => Box::new(ShutdownCommand::new()),
             "start" => Box::new(StartCommand::new()),
-            "wallet-addresses" => match WalletAddressesCommand::new(pieces){
+            "wallet-addresses" => match WalletAddressesCommand::new(pieces) {
                 Ok(command) => Box::new(command),
                 Err(msg) => return Err(CommandSyntax(msg)),
             },

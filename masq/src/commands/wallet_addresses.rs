@@ -1,12 +1,12 @@
-use clap::{App, SubCommand, Arg};
-use crate::commands::commands_common::{Command, CommandError, transaction};
 use crate::command_context::CommandContext;
-use std::any::Any;
+use crate::commands::commands_common::{transaction, Command, CommandError};
+use clap::{App, Arg, SubCommand};
 use masq_lib::messages::{UiWalletAddressesRequest, UiWalletAddressesResponse};
+use std::any::Any;
 
 #[derive(Debug, PartialEq)]
-pub struct WalletAddressesCommand{
-    db_password: String
+pub struct WalletAddressesCommand {
+    db_password: String,
 }
 
 impl WalletAddressesCommand {
@@ -23,7 +23,7 @@ impl WalletAddressesCommand {
         })
     }
 }
-pub fn wallet_addresses_subcommand()-> App<'static, 'static>{
+pub fn wallet_addresses_subcommand() -> App<'static, 'static> {
     SubCommand::with_name("wallet_addresses")
         .about("Provides both addresses of created wallets. If no such wallets, generate-wallets command is where to start.")
         .arg(Arg::with_name ("db-password")
@@ -40,13 +40,19 @@ impl Command for WalletAddressesCommand {
             db_password: self.db_password.clone(),
         };
         let msg: UiWalletAddressesResponse = transaction(input, context, 1000)?;
-               writeln!(context.stdout(),
-                        "Your consuming wallet address: {}", msg.consuming_wallet_address)
-                   .expect("writeln! failed");
-               writeln!(context.stdout(),
-                        "Your   earning wallet address: {}", msg.earning_wallet_address)
-                   .expect("writeln! failed");
-               Ok(())
+        writeln!(
+            context.stdout(),
+            "Your consuming wallet address: {}",
+            msg.consuming_wallet_address
+        )
+        .expect("writeln! failed");
+        writeln!(
+            context.stdout(),
+            "Your   earning wallet address: {}",
+            msg.earning_wallet_address
+        )
+        .expect("writeln! failed");
+        Ok(())
     }
     fn as_any(&self) -> &dyn Any {
         self
@@ -60,9 +66,8 @@ mod tests {
     use crate::command_factory::{CommandFactory, CommandFactoryError, CommandFactoryReal};
     use crate::commands::commands_common::{Command, CommandError};
     use crate::test_utils::mocks::CommandContextMock;
-    use masq_lib::messages::{ToMessageBody, UiWalletAddressesResponse, UiWalletAddressesRequest};
+    use masq_lib::messages::{ToMessageBody, UiWalletAddressesRequest, UiWalletAddressesResponse};
     use std::sync::{Arc, Mutex};
-
 
     #[test]
     fn testing_command_factory_with_good_command() {
@@ -72,7 +77,8 @@ mod tests {
             .make(vec!["wallet-addresses".to_string(), "bonkers".to_string()])
             .unwrap();
 
-        let wallet_addresse_command: &WalletAddressesCommand = result.as_any().downcast_ref().unwrap();
+        let wallet_addresse_command: &WalletAddressesCommand =
+            result.as_any().downcast_ref().unwrap();
         assert_eq!(
             wallet_addresse_command,
             &WalletAddressesCommand {
@@ -84,9 +90,7 @@ mod tests {
     fn testing_command_factory_with_bad_command() {
         let subject = CommandFactoryReal::new();
 
-        let result = subject.make(vec![
-            "wallet-addresses".to_string(),
-        ]);
+        let result = subject.make(vec!["wallet-addresses".to_string()]);
 
         match result {
             Err(CommandFactoryError::CommandSyntax(msg)) => {
@@ -107,7 +111,11 @@ mod tests {
         let transact_params_arc = Arc::new(Mutex::new(vec![]));
         let mut context = CommandContextMock::new()
             .transact_params(&transact_params_arc)
-            .transact_result(Ok(UiWalletAddressesResponse{ consuming_wallet_address: "0x464654jhkjhk6".to_string(), earning_wallet_address: "0x454654klljkjk".to_string() }.tmb(0)));
+            .transact_result(Ok(UiWalletAddressesResponse {
+                consuming_wallet_address: "0x464654jhkjhk6".to_string(),
+                earning_wallet_address: "0x454654klljkjk".to_string(),
+            }
+            .tmb(0)));
         let stdout_arc = context.stdout_arc();
         let stderr_arc = context.stderr_arc();
         let factory = CommandFactoryReal::new();
@@ -130,7 +138,7 @@ mod tests {
                 UiWalletAddressesRequest {
                     db_password: "bonkers".to_string(),
                 }
-                    .tmb(0),
+                .tmb(0),
                 1000
             )]
         )
@@ -142,14 +150,25 @@ mod tests {
         let transact_params_arc = Arc::new(Mutex::new(vec![]));
         let mut context = CommandContextMock::new()
             .transact_params(&transact_params_arc)
-            .transact_result( Err(ContextError::PayloadError(4644,"bad bad bad thing".to_string())));
+            .transact_result(Err(ContextError::PayloadError(
+                4644,
+                "bad bad bad thing".to_string(),
+            )));
         let stderr_arc = context.stderr_arc();
         let factory = CommandFactoryReal::new();
-        let subject = factory.make(vec!["wallet-addresses".to_string(),"some password".to_string()]).unwrap();
+        let subject = factory
+            .make(vec![
+                "wallet-addresses".to_string(),
+                "some password".to_string(),
+            ])
+            .unwrap();
 
         let result = subject.execute(&mut context);
 
-        assert_eq!(result,Err(CommandError::Payload(4644,"bad bad bad thing".to_string())));
+        assert_eq!(
+            result,
+            Err(CommandError::Payload(4644, "bad bad bad thing".to_string()))
+        );
         assert_eq!(stderr_arc.lock().unwrap().get_string(), String::new());
         let transact_params = transact_params_arc.lock().unwrap();
         assert_eq!(
@@ -158,7 +177,7 @@ mod tests {
                 UiWalletAddressesRequest {
                     db_password: "some password".to_string(),
                 }
-                    .tmb(0),
+                .tmb(0),
                 1000
             )]
         )
@@ -169,9 +188,11 @@ mod tests {
         let mut context = CommandContextMock::new().transact_result(Err(
             ContextError::ConnectionDropped("tummyache".to_string()),
         ));
-        let subject =
-            WalletAddressesCommand::new(vec!["wallet-addresses".to_string(), "bonkers".to_string()])
-                .unwrap();
+        let subject = WalletAddressesCommand::new(vec![
+            "wallet-addresses".to_string(),
+            "bonkers".to_string(),
+        ])
+        .unwrap();
 
         let result = subject.execute(&mut context);
 

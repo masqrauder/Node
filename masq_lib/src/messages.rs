@@ -444,9 +444,10 @@ pub struct UiCheckPasswordResponse {
 conversation_message!(UiCheckPasswordResponse, "checkPassword");
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
-pub struct UiWalletAddressesRequest{
+pub struct UiWalletAddressesRequest {
     #[serde(rename = "dbPassword")]
-    pub db_password:String}
+    pub db_password: String,
+}
 
 conversation_message!(UiWalletAddressesRequest, "walletAddresses");
 
@@ -455,7 +456,7 @@ pub struct UiWalletAddressesResponse {
     #[serde(rename = "consumingWalletAddress")]
     pub consuming_wallet_address: String,
     #[serde(rename = "earningWalletAddress")]
-    pub earning_wallet_address: String
+    pub earning_wallet_address: String,
 }
 conversation_message!(UiWalletAddressesResponse, "walletAddresses");
 
