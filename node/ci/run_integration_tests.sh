@@ -4,7 +4,6 @@ CI_DIR="$( cd "$( dirname "$0" )" && pwd )"
 TOOLCHAIN_HOME="$1"
 
 export PATH="$PATH:$HOME/.cargo/bin"
-source "$CI_DIR"/../../ci/environment.sh "$TOOLCHAIN_HOME"
 
 export RUST_BACKTRACE=full
 export RUSTFLAGS="-D warnings -Anon-snake-case"
