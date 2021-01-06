@@ -29,6 +29,7 @@ pub fn wallet_addresses_subcommand() -> App<'static, 'static> {
         .arg(Arg::with_name ("db-password")
             .help ("The current database password (a password must be set to use this command)")
             .index (1)
+            .value_name(DB-PASSWORD)
             .required (true)
             .case_insensitive(false)
         )

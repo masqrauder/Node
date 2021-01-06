@@ -209,7 +209,7 @@ impl Configurator {
         }
         let mnemonic = match self.persistent_config.mnemonic_seed(&db_password){
             Ok(mnemonic_opt) => match mnemonic_opt{
-                None => return Err((CONFIGURATOR_READ_ERROR,"Wallets must be generated prior demanding info on them (use generate-wallets first)".to_string())),
+                None => return Err((CONFIGURATOR_READ_ERROR,"Wallets must exist prior to demanding info on them (recover or generate wallets first)".to_string())),
                 Some(mnemonic) => mnemonic
             }
             Err(e) => return Err((MNEMONIC_PHRASE_ERROR, format!("{:?}",e)))
@@ -224,7 +224,7 @@ impl Configurator {
         let consuming_wallet_address =
             match Self::generate_consuming_wallet(mnemonic, derivation_path) {
                 Ok(wallet) => wallet.string_address_from_keypair(),
-                Err(e) => return Err((KEY_PAIR_CONSTRUCTION_ERROR, format!("{}", e))),
+                Err(e) => return Err((KEY_PAIR_CONSTRUCTION_ERROR, e)),
             };
         let earning_wallet_address = match self.persistent_config.earning_wallet_address() {
             Ok(wallet) => wallet.expect("generateAddresses: earning_address: internal error"),
@@ -786,12 +786,12 @@ mod tests {
                 path: MessagePath::Conversation(1234),
                 payload: Err((
                     CONFIGURATOR_READ_ERROR,
-                    "Wallets must be generated prior demanding info on them".to_string()
+                    "Wallets must exist prior to demanding info on them (recover or generate wallets first)".to_string()
                 ))
             }
         );
         TestLogHandler::new().exists_log_containing(
-            r#"WARN: Configurator: Failed to obtain wallet addresses: 281474976710657, Wallets must be generated prior demanding info on them"#,
+            r#"WARN: Configurator: Failed to obtain wallet addresses: 281474976710657, Wallets must exist prior to demanding info on them (recover or generate wallets first)"#,
         );
     }
 
