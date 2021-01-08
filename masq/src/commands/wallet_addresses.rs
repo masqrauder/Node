@@ -29,7 +29,7 @@ pub fn wallet_addresses_subcommand() -> App<'static, 'static> {
         .arg(Arg::with_name ("db-password")
             .help ("The current database password (a password must be set to use this command)")
             .index (1)
-            .value_name(DB-PASSWORD)
+            .value_name("DB-PASSWORD")
             .required (true)
             .case_insensitive(false)
         )
@@ -129,7 +129,7 @@ mod tests {
         assert_eq!(result, Ok(()));
         assert_eq!(
             stdout_arc.lock().unwrap().get_string(),
-            "Your consuming wallet address: 0x464654jhkjhk6  Your earning wallet address: 0x454654klljkjk\n"
+            "Your consuming wallet address: 0x464654jhkjhk6\nYour   earning wallet address: 0x454654klljkjk\n"
         );
         assert_eq!(stderr_arc.lock().unwrap().get_string(), String::new());
         let transact_params = transact_params_arc.lock().unwrap();
