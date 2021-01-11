@@ -284,7 +284,7 @@ may not have any database password at all.
 
 There's no way to make the Node tell you what the database password is, but if you have an idea
 what it might be, you can check your idea by sending this message with your idea in the
-`dbPasswordOpt` field. If you're checking to see whether there's no password, pass `null` in this
+`dbPasswordOpt` field. If you're checking to see whether there's no password, omit this
 field.
 
 #### `checkPassword`
@@ -357,7 +357,7 @@ version. If this attempt fails for some reason, this value can be used to diagno
 
 * `clandestinePort`: The port on which the Node is currently listening for connections from other Nodes.
 
-* `gasPrice`: The Node will not pay more than this number of wei for gas to complete a transaction.
+* `gasPrice`: The Node will not pay more than this number of Gwei for gas to complete a transaction.
 
 * `mnemonicSeedOpt`: This is a secret string of hexadecimal digits that corresponds exactly with the mnemonic
 phrase, plus any "25th word" mnemonic passphrase. You won't see this if the password isn't correct. You also
@@ -611,16 +611,16 @@ the requested language, including non-ASCII Unicode characters encoded in UTF-8 
 
 `earningWalletAddress` is the address of the generated earning wallet.
 
-#### `walletAddresses`
-##### Direction: Request
+#### `newPassword`
+##### Direction: Broadcast
 ##### Correspondent: Node
 ##### Layout:
 ```
-"payload": {
-    "dbPassword": <string>,
-}
+"payload": {}
 ```
 ##### Description:
+No data comes with this message; it's merely used to inform a UI that the database password has changed.
+If the UI is remembering the database password, it should forget it when this message is received.
 This message directs the Node to look for two pieces of information, the existing wallet addresses. For consuming wallet, it will be computed from the mnemonic seed and the stored derivation path (chosen when generate-wallets was to be run). For earning wallet, that datum can be found in the database directly. Both addresses are reported back to the UI then. If those two wallets do not exist yet, an error message is propagated.
 
 `dbPassword` is the current database password. If this is incorrect, the process cannot end successfully. 
