@@ -2766,10 +2766,10 @@ mod tests {
         );
         let mut subject = NodeConfiguratorStandardUnprivileged::new(&BootstrapperConfig::new());
         subject.privileged_config = BootstrapperConfig::new();
-        subject.privileged_config.data_directory = data_dir;
         let args = ArgsBuilder::new()
             .param("--ip", "1.2.3.4")
-            .param("--gas-price", "57");
+            .param("--gas-price", "57")
+            .param("--data-directory", data_dir.to_str().unwrap());
         let args_vec: Vec<String> = args.into();
 
         let config = subject
@@ -2789,8 +2789,8 @@ mod tests {
         );
         let mut subject = NodeConfiguratorStandardUnprivileged::new(&BootstrapperConfig::new());
         subject.privileged_config = BootstrapperConfig::new();
-        subject.privileged_config.data_directory = data_dir;
-        let args = ArgsBuilder::new().param("--ip", "1.2.3.4");
+        let args = ArgsBuilder::new().param("--ip", "1.2.3.4")
+            .param("--data-directory", data_dir.to_str().unwrap());
         let args_vec: Vec<String> = args.into();
 
         let config = subject
@@ -2804,8 +2804,13 @@ mod tests {
     fn privileged_configuration_rejects_invalid_gas_price() {
         running_test();
         let _clap_guard = ClapGuard::new();
+        let data_dir = ensure_node_home_directory_exists(
+            "node_configurator_standard",
+            "privileged_configuration_rejects_invalid_gas_price",
+        );
         let subject = NodeConfiguratorStandardPrivileged::new();
-        let args = ArgsBuilder::new().param("--gas-price", "unleaded");
+        let args = ArgsBuilder::new().param("--gas-price", "unleaded")
+            .param("--data-directory", data_dir.to_str().unwrap());
         let args_vec: Vec<String> = args.into();
 
         let result = subject
