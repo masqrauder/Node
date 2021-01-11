@@ -2724,8 +2724,14 @@ mod tests {
     fn privileged_configuration_defaults_network_chain_selection_to_mainnet() {
         running_test();
         let _clap_guard = ClapGuard::new();
+        let data_dir = ensure_node_home_directory_exists(
+            "node_configurator_standard",
+            "privileged_configuration_defaults_network_chain_selection_to_mainnet",
+        );
         let subject = NodeConfiguratorStandardPrivileged::new();
-        let args = ArgsBuilder::new().param("--ip", "1.2.3.4");
+        let args = ArgsBuilder::new()
+            .param("--ip", "1.2.3.4")
+            .param("--data-directory", data_dir.to_str().unwrap());
         let args_vec: Vec<String> = args.into();
 
         let config = subject
@@ -2766,10 +2772,10 @@ mod tests {
         );
         let mut subject = NodeConfiguratorStandardUnprivileged::new(&BootstrapperConfig::new());
         subject.privileged_config = BootstrapperConfig::new();
+        subject.privileged_config.data_directory = data_dir;
         let args = ArgsBuilder::new()
             .param("--ip", "1.2.3.4")
-            .param("--gas-price", "57")
-            .param("--data-directory", data_dir.to_str().unwrap());
+            .param("--gas-price", "57");
         let args_vec: Vec<String> = args.into();
 
         let config = subject
@@ -2789,8 +2795,9 @@ mod tests {
         );
         let mut subject = NodeConfiguratorStandardUnprivileged::new(&BootstrapperConfig::new());
         subject.privileged_config = BootstrapperConfig::new();
-        let args = ArgsBuilder::new().param("--ip", "1.2.3.4")
-            .param("--data-directory", data_dir.to_str().unwrap());
+        subject.privileged_config.data_directory = data_dir;
+        let args = ArgsBuilder::new()
+            .param("--ip", "1.2.3.4");
         let args_vec: Vec<String> = args.into();
 
         let config = subject
