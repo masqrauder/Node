@@ -1,6 +1,6 @@
 // Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
 
-use masq_lib::constants::CURRENT_LOGFILE_NAME;
+use masq_lib::constants::{CURRENT_LOGFILE_NAME, DEFAULT_UI_PORT};
 use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN_NAME;
 use std::env;
 use std::io;
@@ -11,6 +11,9 @@ use std::process::Output;
 use std::thread;
 use std::time::Duration;
 use std::time::Instant;
+use node_lib::test_utils::await_value;
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+use masq_lib::utils::localhost;
 
 pub struct MASQNode {
     pub logfile_contents: String,
@@ -72,7 +75,7 @@ impl MASQNode {
         let mut command = MASQNode::make_daemon_command(config);
         eprintln!("{:?}", command);
         let child = command.spawn().unwrap();
-        thread::sleep(Duration::from_millis(500)); // needs time to open UI socket
+        Self::wait_for_node(DEFAULT_UI_PORT);
         MASQNode {
             logfile_contents: String::new(),
             child: Some(child),
@@ -85,7 +88,7 @@ impl MASQNode {
         let mut command = MASQNode::make_node_command(config);
         eprintln!("{:?}", command);
         let child = command.spawn().unwrap();
-        thread::sleep(Duration::from_millis(500)); // needs time to open logfile and sockets
+        Self::wait_for_node(DEFAULT_UI_PORT);
         MASQNode {
             logfile_contents: String::new(),
             child: Some(child),
@@ -257,6 +260,19 @@ impl MASQNode {
             args.push(MASQNode::data_dir().to_string_lossy().to_string());
         }
         args
+    }
+
+    fn wait_for_node(ui_port: u16) {
+        await_value(Some ((500, 5000)), || {
+            let address = SocketAddr::new (localhost(), ui_port);
+            match std::net::TcpStream::connect_timeout(&address, Duration::from_millis(100)) {
+                Ok(stream) => {
+                    stream.shutdown (std::net::Shutdown::Both).unwrap();
+                    Ok(())
+                },
+                Err(e) => Err(format!("Can't connect yet: {:?}", e)),
+            }
+        });
     }
 }
 
