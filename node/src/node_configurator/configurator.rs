@@ -426,8 +426,8 @@ mod tests {
 
     use masq_lib::messages::{
         ToMessageBody, UiChangePasswordResponse, UiCheckPasswordRequest, UiCheckPasswordResponse,
-        UiWalletAddressesRequest, UiWalletAddressesResponse,
-        UiGenerateWalletsResponse, UiNewPasswordBroadcast, UiStartOrder,
+        UiGenerateWalletsResponse, UiNewPasswordBroadcast, UiStartOrder, UiWalletAddressesRequest,
+        UiWalletAddressesResponse,
     };
     use masq_lib::ui_gateway::{MessagePath, MessageTarget};
 
