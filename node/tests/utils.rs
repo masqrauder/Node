@@ -2,8 +2,11 @@
 
 use masq_lib::constants::{CURRENT_LOGFILE_NAME, DEFAULT_UI_PORT};
 use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN_NAME;
+use masq_lib::utils::localhost;
+use node_lib::test_utils::await_value;
 use std::env;
 use std::io;
+use std::net::{SocketAddr};
 use std::ops::Drop;
 use std::path::Path;
 use std::process;
@@ -11,9 +14,6 @@ use std::process::Output;
 use std::thread;
 use std::time::Duration;
 use std::time::Instant;
-use node_lib::test_utils::await_value;
-use std::net::{IpAddr, Ipv4Addr, SocketAddr};
-use masq_lib::utils::localhost;
 
 pub struct MASQNode {
     pub logfile_contents: String,
@@ -263,13 +263,13 @@ impl MASQNode {
     }
 
     fn wait_for_node(ui_port: u16) {
-        await_value(Some ((500, 5000)), || {
-            let address = SocketAddr::new (localhost(), ui_port);
+        await_value(Some((500, 5000)), || {
+            let address = SocketAddr::new(localhost(), ui_port);
             match std::net::TcpStream::connect_timeout(&address, Duration::from_millis(100)) {
                 Ok(stream) => {
-                    stream.shutdown (std::net::Shutdown::Both).unwrap();
+                    stream.shutdown(std::net::Shutdown::Both).unwrap();
                     Ok(())
-                },
+                }
                 Err(e) => Err(format!("Can't connect yet: {:?}", e)),
             }
         });
