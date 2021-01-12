@@ -18,6 +18,7 @@ use std::time::Duration;
                            // MASQNode will be immediately reclaimed.
 fn tls_through_node_integration() {
     let node = utils::MASQNode::start_standard(None);
+
     let mut tls_stream = {
         let mut tls_stream: Option<TlsStream<TcpStream>> = None;
         let stream = TcpStream::connect(SocketAddr::from_str("127.0.0.1:443").unwrap())
