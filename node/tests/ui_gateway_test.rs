@@ -11,10 +11,11 @@ use masq_lib::utils::find_free_port;
 use utils::CommandConfig;
 
 #[test]
+#[ignore]
 fn dispatcher_message_integration() {
     fdlimit::raise_fd_limit();
     let port = find_free_port();
-    let mut node = utils::MASQNode::start_standard(Some(
+    let mut node = utils::MASQNode::start_standard("dispatcher_message_integration", Some(
         CommandConfig::new().pair("--ui-port", &port.to_string()),
     ));
     node.wait_for_log("UIGateway bound", Some(5000));
@@ -34,7 +35,7 @@ fn dispatcher_message_integration() {
 fn request_financial_information_integration() {
     fdlimit::raise_fd_limit();
     let port = find_free_port();
-    let mut node = utils::MASQNode::start_standard(Some(
+    let mut node = utils::MASQNode::start_standard("request_financial_information_integration", Some(
         CommandConfig::new().pair("--ui-port", &port.to_string()),
     ));
     node.wait_for_log("UIGateway bound", Some(5000));

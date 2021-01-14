@@ -34,7 +34,7 @@ fn clap_help_does_not_initialize_database_integration() {
         Err(ref e) => panic!("{:?}", e),
     }
 
-    let mut node = MASQNode::start_standard(Some(
+    let mut node = MASQNode::start_standard("clap_help_does_not_initialize_database_integration", Some(
         CommandConfig::new().opt("--help"), // We don't specify --data-directory because the --help logic doesn't evaluate it
     ));
 
@@ -46,7 +46,7 @@ fn clap_help_does_not_initialize_database_integration() {
 #[test]
 fn initialization_sequence_integration() {
     let daemon_port = find_free_port();
-    let mut daemon = MASQNode::start_daemon(Some(
+    let mut daemon = MASQNode::start_daemon("initialization_sequence_integration", Some(
         CommandConfig::new().pair("--ui-port", format!("{}", daemon_port).as_str()),
     ));
     let mut initialization_client = UiConnection::new(daemon_port, NODE_UI_PROTOCOL);
