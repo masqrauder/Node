@@ -172,12 +172,13 @@ impl MASQNode {
     }
 
     #[cfg(target_os = "windows")]
-    pub fn kill(&mut self) {
+    pub fn kill(&mut self)-> Result<(), io::Error> {
         let mut command = process::Command::new("taskkill");
         command.args(&["/IM", "MASQNode.exe", "/F"]);
         let _ = command.output().expect("Couldn't kill MASQNode.exe");
         self.child.take();
         // Be nice if we could figure out how to populate self.output here
+        Ok(()) //Could it be left like that?
     }
 
     pub fn remove_logfile(data_dir:&PathBuf) -> Box<Path> {
