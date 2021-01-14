@@ -9,7 +9,6 @@ use masq_lib::utils::{find_free_port, localhost};
 use websocket::{ClientBuilder, OwnedMessage};
 
 #[test]
-#[ignore]
 fn node_exits_from_blockchain_bridge_panic_integration() {
     start_node_and_request_crash("node_exits_from_blockchain_bridge_panic_integration",node_lib::blockchain::blockchain_bridge::CRASH_KEY);
 }
@@ -69,7 +68,7 @@ fn start_node_and_request_crash(dir_name:&str, crash_key: &str) {
         .pair("--neighborhood-mode", "zero-hop")
         .pair("--ui-port", format!("{}", port).as_str());
     println!("Before creating the directory");///////////////////////////////////////////////////////////////////////////////////////////
-    let mut node = utils::MASQNode::start_standard(dir_name,Some(panic_config));
+    let mut node = utils::MASQNode::start_standard(dir_name,Some(panic_config), true);
     let msg = UiTrafficConverter::new_marshal(
         UiCrashRequest {
             actor: crash_key.to_string(),

@@ -43,6 +43,18 @@ impl CommandConfig {
         self.args.push(value.to_string());
         self
     }
+
+    pub fn value_of(&self, parameter: &str) -> Option<String> {
+        for n in 0..self.args.len() {
+            if self.args[n] == parameter {
+                if (n + 1) >= self.args.len() {
+                    return None
+                }
+                return Some (self.args[n + 1].clone())
+            }
+        }
+        None
+    }
 }
 
 impl Drop for MASQNode {
@@ -52,10 +64,6 @@ impl Drop for MASQNode {
 }
 
 impl MASQNode {
-    pub fn data_dir(&self) -> Box<Path> {
-        self.data_dir.clone().into_boxed_path()
-    }
-
     pub fn path_to_logfile(data_dir:&PathBuf) -> Box<Path> {
         data_dir
             .join(CURRENT_LOGFILE_NAME)
@@ -71,35 +79,13 @@ impl MASQNode {
         self.output.take()
     }
 
-    pub fn start_daemon(test_name:&str, config: Option<CommandConfig>) -> MASQNode {
-        let data_dir = ensure_node_home_directory_exists("integration",test_name);
-        Self::remove_logfile(&data_dir);
-        let mut command = MASQNode::make_daemon_command(&data_dir,config);
-        eprintln!("{:?}", command);
-        let child = command.spawn().unwrap();
-        Self::wait_for_node(DEFAULT_UI_PORT);
-        MASQNode {
-            logfile_contents: String::new(),
-            data_dir,
-            child: Some(child),
-            output: None,
-        }
+    pub fn start_daemon(test_name:&str, config_opt: Option<CommandConfig>, ensure_start: bool) -> MASQNode {
+        Self::start_something (test_name, config_opt, ensure_start, Self::make_daemon_command)
     }
 
     #[allow(dead_code)]
-    pub fn start_standard(test_name:&str, config: Option<CommandConfig>) -> MASQNode {
-        let data_dir = ensure_node_home_directory_exists("integration",test_name);
-        Self::remove_logfile(&data_dir);
-        let mut command = MASQNode::make_node_command(&data_dir,config);
-        eprintln!("{:?}", command);
-        let child = command.spawn().unwrap();
-        Self::wait_for_node(DEFAULT_UI_PORT);
-        MASQNode {
-            logfile_contents: String::new(),
-            data_dir,
-            child: Some(child),
-            output: None,
-        }
+    pub fn start_standard(test_name:&str, config_opt: Option<CommandConfig>, ensure_start: bool) -> MASQNode {
+        Self::start_something (test_name, config_opt, ensure_start, Self::make_node_command)
     }
 
     #[allow(dead_code)]
@@ -117,11 +103,19 @@ impl MASQNode {
         let regex = regex::Regex::new(pattern).unwrap();
         let real_limit_ms = limit_ms.unwrap_or(0xFFFFFFFF);
         let started_at = Instant::now();
+        let path_to_logfile = Self::path_to_logfile(&self.data_dir);
         loop {
-            self.logfile_contents = std::fs::read_to_string(Self::path_to_logfile(&self.data_dir)).unwrap();
-            if regex.is_match(&self.logfile_contents[..]) {
-                break;
-            }
+            match std::fs::read_to_string(&path_to_logfile) {
+                Ok(contents) => {
+                    self.logfile_contents = contents;
+                    if regex.is_match(&self.logfile_contents[..]) {
+                        break;
+                    }
+                },
+                Err(e) => {
+                    eprintln! ("Could not read logfile at {:?}: {:?}", path_to_logfile, e);
+                }
+            };
             assert_eq!(
                 MASQNode::millis_since(started_at) < real_limit_ms,
                 true,
@@ -208,6 +202,30 @@ impl MASQNode {
         }
     }
 
+    fn start_something<F: FnOnce(&PathBuf, Option<CommandConfig>) -> process::Command> (
+        test_name: &str,
+        config_opt: Option<CommandConfig>,
+        ensure_start: bool,
+        command_getter: F
+    ) -> MASQNode {
+        let data_dir = ensure_node_home_directory_exists("integration",test_name);
+        Self::remove_logfile(&data_dir);
+        let ui_port = Self::ui_port_from_config_opt(&config_opt);
+        let mut command = command_getter(&data_dir, config_opt);
+        eprintln!("{:?}", command);
+        let child = command.spawn().unwrap();
+        let mut result = MASQNode {
+            logfile_contents: String::new(),
+            data_dir,
+            child: Some(child),
+            output: None,
+        };
+        if ensure_start {
+            result.wait_for_node(ui_port).unwrap();
+        }
+        result
+    }
+
     fn millis_since(started_at: Instant) -> u64 {
         let interval = Instant::now().duration_since(started_at);
         let second_milliseconds = interval.as_secs() * 1000;
@@ -279,17 +297,33 @@ impl MASQNode {
         args
     }
 
-    fn wait_for_node(ui_port: u16) {
-        await_value(Some((600, 6000)), || {
+    fn wait_for_node(&mut self, ui_port: u16) -> Result<(), String> {
+        let result = await_value(Some((600, 6000)), || {
             let address = SocketAddr::new(localhost(), ui_port);
             match std::net::TcpStream::connect_timeout(&address, Duration::from_millis(100)) {
                 Ok(stream) => {
                     stream.shutdown(std::net::Shutdown::Both).unwrap();
                     Ok(())
                 }
-                Err(e) => Err(format!("Can't connect yet: {:?}", e)),
+                Err(e) => Err(format!("Can't connect yet on port {}: {:?}", ui_port, e)),
             }
         });
+        if result.is_err() {
+            self.kill().map_err (|e| format! ("{:?}", e))?;
+        };
+        result
+    }
+
+    fn ui_port_from_config_opt (config_opt: &Option<CommandConfig>) -> u16 {
+        match config_opt {
+            None => DEFAULT_UI_PORT,
+            Some (config) => {
+                match config.value_of ("--ui-port") {
+                    None => DEFAULT_UI_PORT,
+                    Some (ui_port_string) => ui_port_string.parse::<u16>().unwrap()
+                }
+            }
+        }
     }
 }
 
