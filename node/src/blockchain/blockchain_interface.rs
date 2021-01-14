@@ -867,7 +867,8 @@ mod tests {
                 (Err(a), _) => Err(a),
                 (_, Err(b)) => Err(b),
             }
-        }).unwrap();
+        })
+        .unwrap();
 
         let eth_balance = results.0.unwrap();
         let token_balance = results.1.unwrap();
