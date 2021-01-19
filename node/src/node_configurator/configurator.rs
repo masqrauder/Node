@@ -194,7 +194,7 @@ impl Configurator {
                 MessageBody {
                     opcode: msg.opcode().to_string(),
                     path: MessagePath::Conversation(context_id),
-                    payload: Err((error.0, error.1)),
+                    payload: Err(error),
                 }
             }
         }
