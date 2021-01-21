@@ -251,4 +251,42 @@ mod tests {
             msg
         );
     }
+
+    #[test]
+    fn testing_command_factory_with_good_command() {
+        let subject = CommandFactoryReal::new();
+
+        let result = subject
+            .make(vec!["wallet-addresses".to_string(), "bonkers".to_string()])
+            .unwrap();
+
+        let wallet_address_command: &WalletAddressesCommand =
+            result.as_any().downcast_ref().unwrap();
+        assert_eq!(
+            wallet_address_command,
+            &WalletAddressesCommand {
+                db_password: "bonkers".to_string(),
+            }
+        );
+    }
+
+    #[test]
+    fn testing_command_factory_with_bad_command() {
+        let subject = CommandFactoryReal::new();
+
+        let result = subject.make(vec!["wallet-addresses".to_string()]);
+
+        match result {
+            Err(CommandFactoryError::CommandSyntax(msg)) => {
+                // Note: when run with MASQ/Node/ci/all.sh, msg contains escape sequences for color.
+                assert_eq!(
+                    msg.contains("The following required arguments were not provided:"),
+                    true,
+                    "{}",
+                    msg
+                )
+            }
+            x => panic!("Expected CommandSyntax error, got {:?}", x),
+        }
+    }
 }

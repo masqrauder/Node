@@ -6,7 +6,7 @@ use std::any::Any;
 
 #[derive(Debug, PartialEq)]
 pub struct WalletAddressesCommand {
-    db_password: String,
+    pub(crate) db_password: String,
 }
 
 impl WalletAddressesCommand {
@@ -25,10 +25,9 @@ impl WalletAddressesCommand {
 }
 pub fn wallet_addresses_subcommand() -> App<'static, 'static> {
     SubCommand::with_name("wallet_addresses")
-        .about("Provides both addresses of created wallets. If no such wallets, generate-wallets command is where to start.")
+        .about("Provides addresses of consuming and earning wallets. Only valid if the wallets were successfully generated (generate-wallets) or recovered (recover-wallets)")
         .arg(Arg::with_name ("db-password")
             .help ("The current database password (a password must be set to use this command)")
-            .index (1)
             .value_name("DB-PASSWORD")
             .required (true)
             .case_insensitive(false)
@@ -64,51 +63,15 @@ impl Command for WalletAddressesCommand {
 mod tests {
     use super::*;
     use crate::command_context::ContextError;
-    use crate::command_factory::{CommandFactory, CommandFactoryError, CommandFactoryReal};
+    use crate::command_factory::{CommandFactory, CommandFactoryReal};
     use crate::commands::commands_common::{Command, CommandError};
     use crate::test_utils::mocks::CommandContextMock;
     use masq_lib::messages::{ToMessageBody, UiWalletAddressesRequest, UiWalletAddressesResponse};
     use std::sync::{Arc, Mutex};
 
-    #[test]
-    fn testing_command_factory_with_good_command() {
-        let subject = CommandFactoryReal::new();
-
-        let result = subject
-            .make(vec!["wallet-addresses".to_string(), "bonkers".to_string()])
-            .unwrap();
-
-        let wallet_addresse_command: &WalletAddressesCommand =
-            result.as_any().downcast_ref().unwrap();
-        assert_eq!(
-            wallet_addresse_command,
-            &WalletAddressesCommand {
-                db_password: "bonkers".to_string(),
-            }
-        );
-    }
-    #[test]
-    fn testing_command_factory_with_bad_command() {
-        let subject = CommandFactoryReal::new();
-
-        let result = subject.make(vec!["wallet-addresses".to_string()]);
-
-        match result {
-            Err(CommandFactoryError::CommandSyntax(msg)) => {
-                // Note: when run with MASQ/Node/ci/all.sh, msg contains escape sequences for color.
-                assert_eq!(
-                    msg.contains("The following required arguments were not provided:"),
-                    true,
-                    "{}",
-                    msg
-                )
-            }
-            x => panic!("Expected CommandSyntax error, got {:?}", x),
-        }
-    }
 
     #[test]
-    fn wallet_address_command_with_password_right() {
+    fn wallet_addresses_with_password_right() {
         let transact_params_arc = Arc::new(Mutex::new(vec![]));
         let mut context = CommandContextMock::new()
             .transact_params(&transact_params_arc)
@@ -146,11 +109,8 @@ mod tests {
     }
 
     #[test]
-    fn wallet_addresses_command_with_no_password_wrong() {
-        //works the same if the password is incorrect
-        let transact_params_arc = Arc::new(Mutex::new(vec![]));
+    fn wallet_addresses_handles_error_due_to_a_complain_from_database() {
         let mut context = CommandContextMock::new()
-            .transact_params(&transact_params_arc)
             .transact_result(Err(ContextError::PayloadError(
                 4644,
                 "bad bad bad thing".to_string(),
@@ -171,21 +131,10 @@ mod tests {
             Err(CommandError::Payload(4644, "bad bad bad thing".to_string()))
         );
         assert_eq!(stderr_arc.lock().unwrap().get_string(), String::new());
-        let transact_params = transact_params_arc.lock().unwrap();
-        assert_eq!(
-            *transact_params,
-            vec![(
-                UiWalletAddressesRequest {
-                    db_password: "some password".to_string(),
-                }
-                .tmb(0),
-                1000
-            )]
-        )
     }
 
     #[test]
-    fn wallet_addresses_command_handles_send_failure() {
+    fn wallet_addresses_handles_send_failure() {
         let mut context = CommandContextMock::new().transact_result(Err(
             ContextError::ConnectionDropped("tummyache".to_string()),
         ));
