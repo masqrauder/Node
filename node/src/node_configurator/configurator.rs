@@ -203,30 +203,31 @@ impl Configurator {
         context_id: u64,
     ) -> MessageBody {
         match self.get_wallet_addresses(msg.db_password.clone()) {
-            Ok((consuming,earning)) => UiWalletAddressesResponse {
+            Ok((consuming, earning)) => UiWalletAddressesResponse {
                 consuming_wallet_address: consuming,
-                earning_wallet_address: earning}
+                earning_wallet_address: earning,
+            }
             .tmb(context_id),
-            Err((code,e_msg)) => {
+            Err((code, e_msg)) => {
                 warning!(
                     self.logger,
                     "Failed to obtain wallet addresses: {}, {}",
                     code,
-                    e_msg);
+                    e_msg
+                );
                 MessageBody {
                     opcode: msg.opcode().to_string(),
                     path: MessagePath::Conversation(context_id),
-                    payload: Err((code,e_msg)),
+                    payload: Err((code, e_msg)),
                 }
             }
         }
     }
 
     fn get_wallet_addresses(&self, db_password: String) -> Result<(String, String), (u64, String)> {
-
         let mnemonic = match self.persistent_config.mnemonic_seed(&db_password){
             Ok(mnemonic_opt) => match mnemonic_opt{
-                None => return Err(( EARLY_QESTIONING_ABOUT_DATA,"Wallets must exist prior to demanding info on them (recover or generate wallets first)".to_string())),
+                None => return Err(( EARLY_QUESTIONING_ABOUT_DATA,"Wallets must exist prior to demanding info on them (recover or generate wallets first)".to_string())),
                 Some(mnemonic) => mnemonic
             }
             Err(e) => return Err((CONFIGURATOR_READ_ERROR, format!("{:?}",e)))
@@ -760,7 +761,7 @@ mod tests {
             .mnemonic_seed_result(Ok(Some(PlainData::new(
                 "snake, goal, cook, doom".as_bytes(),
             ))))
-            .consuming_wallet_derivation_path_result(Ok(Some(String::from(derivation_path(0,4)))))
+            .consuming_wallet_derivation_path_result(Ok(Some(String::from(derivation_path(0, 4)))))
             .earning_wallet_address_result(Ok(Some(String::from(
                 "0x01234567890aa345678901234567890123456789",
             ))));
@@ -805,10 +806,9 @@ mod tests {
     fn handle_wallet_addresses_works_if_mnemonic_seed_causes_error() {
         // also consider as a test for bad password supplied; mnemonic_seed solves that within
         init_test_logging();
-        let persistent_config = PersistentConfigurationMock::new()
-            .mnemonic_seed_result(Err(PersistentConfigError::DatabaseError(
-                "Unknown error".to_string(),
-            )));
+        let persistent_config = PersistentConfigurationMock::new().mnemonic_seed_result(Err(
+            PersistentConfigError::DatabaseError("Unknown error".to_string()),
+        ));
         let subject = make_subject(Some(persistent_config));
         let msg = UiWalletAddressesRequest {
             db_password: "some password".to_string(),
@@ -835,8 +835,7 @@ mod tests {
     #[test]
     fn handle_wallet_addresses_works_if_mnemonic_seed_is_none() {
         init_test_logging();
-        let persistent_config = PersistentConfigurationMock::new()
-            .mnemonic_seed_result(Ok(None));
+        let persistent_config = PersistentConfigurationMock::new().mnemonic_seed_result(Ok(None));
         let subject = make_subject(Some(persistent_config));
         let msg = UiWalletAddressesRequest {
             db_password: "some password".to_string(),
@@ -850,7 +849,7 @@ mod tests {
                 opcode: "walletAddresses".to_string(),
                 path: MessagePath::Conversation(1234),
                 payload: Err((
-                    EARLY_QESTIONING_ABOUT_DATA,
+                    EARLY_QUESTIONING_ABOUT_DATA,
                     "Wallets must exist prior to demanding info on them (recover or generate wallets first)".to_string()
                 ))
             }
@@ -861,12 +860,12 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "Database corrupted: consuming derivation path not present despite mnemonic seed in place!")]
+    #[should_panic(
+        expected = "Database corrupted: consuming derivation path not present despite mnemonic seed in place!"
+    )]
     fn handle_wallet_addresses_panics_if_derivation_path_is_none() {
         let persistent_config = PersistentConfigurationMock::new()
-            .mnemonic_seed_result(Ok(Some(PlainData::new(
-                b"snake, goal, cook, doom",
-            ))))
+            .mnemonic_seed_result(Ok(Some(PlainData::new(b"snake, goal, cook, doom"))))
             .consuming_wallet_derivation_path_result(Ok(None));
         let subject = make_subject(Some(persistent_config));
         let msg = UiWalletAddressesRequest {
@@ -880,9 +879,7 @@ mod tests {
     fn handle_wallet_addresses_works_if_derivation_path_causes_error() {
         init_test_logging();
         let persistent_config = PersistentConfigurationMock::new()
-            .mnemonic_seed_result(Ok(Some(PlainData::new(
-                b"snake, goal, cook, doom",
-            ))))
+            .mnemonic_seed_result(Ok(Some(PlainData::new(b"snake, goal, cook, doom"))))
             .consuming_wallet_derivation_path_result(Err(PersistentConfigError::DatabaseError(
                 "Unknown error 2".to_string(),
             )));
@@ -913,9 +910,7 @@ mod tests {
     fn handle_wallet_addresses_works_if_consuming_wallet_address_error() {
         init_test_logging();
         let persistent_config = PersistentConfigurationMock::new()
-            .mnemonic_seed_result(Ok(Some(PlainData::new(
-                b"snake, goal, cook, doom",
-            ))))
+            .mnemonic_seed_result(Ok(Some(PlainData::new(b"snake, goal, cook, doom"))))
             .consuming_wallet_derivation_path_result(Ok(Some(String::from("*************"))));
         let subject = make_subject(Some(persistent_config));
         let msg = UiWalletAddressesRequest {
@@ -948,7 +943,7 @@ mod tests {
             .mnemonic_seed_result(Ok(Some(PlainData::new(
                 "snake, goal, cook, doom".as_bytes(),
             ))))
-            .consuming_wallet_derivation_path_result(Ok(Some(String::from(derivation_path(0,4)))))
+            .consuming_wallet_derivation_path_result(Ok(Some(String::from(derivation_path(0, 4)))))
             .earning_wallet_address_result(Err(PersistentConfigError::DatabaseError(
                 "Unknown error 3".to_string(),
             )));
@@ -976,13 +971,13 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "Database corrupted: missing earning wallet address despite other values for wallets in place!")]
+    #[should_panic(
+        expected = "Database corrupted: missing earning wallet address despite other values for wallets in place!"
+    )]
     fn handle_wallet_addresses_panics_if_earning_wallet_address_is_missing() {
         let persistent_config = PersistentConfigurationMock::new()
-            .mnemonic_seed_result(Ok(Some(PlainData::new(
-                b"snake, goal, cook, doom",
-            ))))
-            .consuming_wallet_derivation_path_result(Ok(Some(String::from(derivation_path(0,4)))))
+            .mnemonic_seed_result(Ok(Some(PlainData::new(b"snake, goal, cook, doom"))))
+            .consuming_wallet_derivation_path_result(Ok(Some(String::from(derivation_path(0, 4)))))
             .earning_wallet_address_result(Ok(None));
         let subject = make_subject(Some(persistent_config));
         let msg = UiWalletAddressesRequest {

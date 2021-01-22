@@ -69,7 +69,6 @@ mod tests {
     use masq_lib::messages::{ToMessageBody, UiWalletAddressesRequest, UiWalletAddressesResponse};
     use std::sync::{Arc, Mutex};
 
-
     #[test]
     fn wallet_addresses_with_password_right() {
         let transact_params_arc = Arc::new(Mutex::new(vec![]));
@@ -110,11 +109,9 @@ mod tests {
 
     #[test]
     fn wallet_addresses_handles_error_due_to_a_complain_from_database() {
-        let mut context = CommandContextMock::new()
-            .transact_result(Err(ContextError::PayloadError(
-                4644,
-                "bad bad bad thing".to_string(),
-            )));
+        let mut context = CommandContextMock::new().transact_result(Err(
+            ContextError::PayloadError(4644, "bad bad bad thing".to_string()),
+        ));
         let stderr_arc = context.stderr_arc();
         let factory = CommandFactoryReal::new();
         let subject = factory
