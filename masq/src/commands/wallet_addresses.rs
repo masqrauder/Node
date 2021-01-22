@@ -6,7 +6,7 @@ use std::any::Any;
 
 #[derive(Debug, PartialEq)]
 pub struct WalletAddressesCommand {
-    pub(crate) db_password: String,
+    pub db_password: String,
 }
 
 impl WalletAddressesCommand {

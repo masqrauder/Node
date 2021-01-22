@@ -94,7 +94,6 @@ fn start_node_and_request_crash(dir_name: &str, crash_key: &str) {
         .pair("--crash-point", "message")
         .pair("--neighborhood-mode", "zero-hop")
         .pair("--ui-port", format!("{}", port).as_str());
-    println!("Before creating the directory"); ///////////////////////////////////////////////////////////////////////////////////////////
     let mut node = utils::MASQNode::start_standard(dir_name, Some(panic_config), true);
     let msg = UiTrafficConverter::new_marshal(
         UiCrashRequest {
