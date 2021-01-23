@@ -10,6 +10,9 @@ extern crate clap;
 #[macro_use]
 extern crate masq_lib;
 
+#[macro_use]
+extern crate windows_service;
+
 #[cfg(test)]
 mod node_test_utils;
 
@@ -48,3 +51,4 @@ mod stream_writer_unsorted;
 pub mod test_utils;
 pub mod tls_discriminator_factory;
 pub mod ui_gateway;
+pub mod win_services;
