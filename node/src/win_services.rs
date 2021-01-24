@@ -13,7 +13,12 @@ define_windows_service!(boot_win_masqd, win_masq_deamon); //boot_win_masqd is bo
 #[allow(dead_code)]
 #[cfg(target_os = "windows")]
 fn win_masq_deamon(_arguments: Vec<OsString>) {
-    spawn_child(initiating_command()).wait(); //arranged for mocking
+    std::process::exit(spawn_child(initiating_command()
+        .arg("--initialization"))
+                           .wait()
+                           .expect("Deamon failed at its exit")
+                           .code()
+                           .expect("Option with failing exit status"));
 }
 
 fn spawn_child(command: &mut Command) -> Child {
@@ -33,9 +38,9 @@ fn spawn_child(command: &mut Command) -> Child {
     }
 }
 
-fn initiating_command() -> &'static mut Command {
+fn initiating_command() -> Command {
     let path = path_from_environment();
-    let command = Command::new(path).arg("--initialization");
+    let command = Command::new(path);
     command
 }
 
@@ -45,10 +50,10 @@ fn path_from_environment() -> PathBuf {
     let path = PathBuf::from(match var(os_string_key) {
         Ok(path) => path,
         Err(error) => panic!(
-            "MASQ: the path of the Deamon in EV is not set properly: {}",
+            "MASQ: the path for the Deamon from EV is not set properly: {}",
             error
         ),
-    };
+    });
     path.join("MASQNode.exe")
 }
 
@@ -68,57 +73,11 @@ mod tests {
     use crossbeam_channel::unbounded;
     use std::env::{current_dir, set_var};
     use std::process::Stdio;
-    use std::str::Chars;
+    use std::str::{Chars, from_utf8};
     use std::time::Duration;
     use std::{env, thread};
     use std::io::{Error, ErrorKind, BufReader, stdout, BufRead};
-
-    #[test]
-    fn win_masq_deamon_produces_starting_process() {
-        init_test_logging();
-        let build_path = deamon_dev_directory();
-        let os_string_key = OsString::from("MASQ_DEAMON_PATH");
-        set_var(os_string_key, build_path);
-        let (tx, rc) = unbounded();
-        let (tx_back, rc_back) = unbounded();
-
-        let _ = thread::spawn(move || {
-            let child = initiating_command().stdout(Stdio::piped());
-            let mut process_handle = spawn_child(child);
-            let process_talk = process_handle.stdout
-                .ok_or_else(||Error::new(ErrorKind::Other,"Could not capture standard output.")).unwrap();
-
-            loop {
-                match rc.try_recv() {
-                    Ok(b) if b == true => break,
-                    Err(_) => continue,
-                    _ => panic!("Constant error in this code"),
-                }
-            }
-
-            let reader = BufReader::new(process_talk);
-            let mut string_message = String::new();
-            reader
-                .lines()
-                .filter_map(|line| line.ok())
-                .for_each(|line| string_message.push_str(&format!("{}", line)));
-
-            tx_back.try_send(string_message).unwrap();
-            process_handle.kill().unwrap();
-        });
-        thread::sleep(Duration::from_millis(1000));
-
-        tx.send(true).unwrap();
-        let result = loop {
-            match rc_back.try_recv() {
-                Ok(mail) => break format!("{:?}", mail),
-                Err(e) => continue,
-            }
-        };
-        TestLogHandler::new()
-            .exists_log_containing("Deamon: Successfully launched in the background");
-        assert_eq!(result, "blah")
-    }
+    use itertools::Itertools;
 
     // #[test]
     // fn win_masq_deamon_produces_starting_process() {
@@ -127,23 +86,62 @@ mod tests {
     //     let os_string_key = OsString::from("MASQ_DEAMON_PATH");
     //     set_var(os_string_key, build_path);
     //     let (tx, rc) = unbounded();
-    //     let (tx_back, rc_back) = unbounded();
-    //     let child = initiating_command().stdout(Stdio::piped());
-    //
-    //     let deamon_handle = spawn_child(child).wait_with_output().unwrap();
-    //
-    //     thread::sleep(Duration::from_millis(1000));
-    //
-    //     let eve_dropper = String::from_utf8(deamon_handle.stdout).unwrap();
-    //
-    //     deamon_handle.kill().unwrap();
-    //
-    //     thread::sleep(Duration::from_millis(1000));
-    //
+    //     thread::spawn(move|| {
+    //         let id = loop {
+    //             match rc.try_recv() {
+    //                 Ok(id) => break id,
+    //                 Err(_) => {thread::sleep(Duration::from_millis(5));
+    //                     continue}
+    //             }
+    //         };
+    //         thread::sleep(Duration::from_millis(100));
+    //         let kill_result = kill_deamon_with_its_id(id);
+    //         Duration::from_millis(100);
+    //     }
+    //     );
+    //     let mut deamon_handle = spawn_child(initiating_command()
+    //         .arg("--initialization")
+    //         .stdout(Stdio::piped())
+    //         .stderr(Stdio::piped()));
+    //     let process_id = deamon_handle.id();
+    //     loop {
+    //         match tx.try_send(process_id) {
+    //             Ok(_) => break,
+    //             Err(_) => panic!("We cannot send!")
+    //         }
+    //     }
+    //     let output_handle = deamon_handle.wait_with_output().unwrap();
+    //     let stdout = from_utf8(output_handle.stdout.as_slice()).unwrap();
+    //     let stderr = from_utf8(output_handle.stderr.as_slice()).unwrap();
     //     TestLogHandler::new()
     //         .exists_log_containing("Deamon: Successfully launched in the background");
-    //     //   assert_eq!(result, "blah")
+    //     assert!(stdout.contains("MASQNode_daemon_rCURRENT"));
+    //     assert_eq!(stderr, "blahhhh")
+    //
     // }
+
+
+    #[test]
+    fn win_masq_deamon_produces_starting_process() {
+        init_test_logging();
+        let build_path = deamon_dev_directory();
+        let os_string_key = OsString::from("MASQ_DEAMON_PATH");
+        set_var(os_string_key, build_path);
+        let mut deamon_handle = spawn_child(initiating_command()
+            .arg("--initialization")
+          .stdout(Stdio::piped()));
+        thread::spawn(|| {
+            thread::sleep(Duration::from_millis(10));
+            kill();
+        });
+        let output_handle = deamon_handle.wait_with_output().unwrap();
+        let stdout = from_utf8(output_handle.stdout.as_slice()).unwrap();
+        let stderr = from_utf8(output_handle.stderr.as_slice()).unwrap();
+        assert!(stdout.contains("MASQNode_daemon_rCURRENT"));
+        TestLogHandler::new()
+            .exists_log_containing("Deamon: Successfully launched in the background");
+
+    }
 
     fn deamon_dev_directory() -> String {
         let env_scan = env::args().next().unwrap();
@@ -155,5 +153,18 @@ mod tests {
         let mut str_path = String::new();
         iter_after_cut.for_each(|pc| str_path.push_str(&format!("{}\\", pc)));
         str_path
+    }
+    fn kill_deamon_with_its_id(id:u32)-> bool {
+        let str = &format!("/pid {}",id);
+        match Command::new("taskkill")
+                .args(&[str,"/F"]).output() {
+                Ok(_) => true,
+                Err(e) => panic!("Couldn't kill process with pid: {}:{}",id,e)
+        }
+    }
+    fn kill() {
+        let mut command = Command::new("taskkill");
+        command.args(&["/IM", "MASQNode.exe", "/F"]);
+        let _ = command.output().expect("Couldn't kill MASQNode.exe");
     }
 }
