@@ -1,6 +1,7 @@
 // Copyright (c) 2019-2020, MASQ (https://masq.ai). All rights reserved.
 
 pub mod crash_notification;
+mod daemonization;
 pub mod daemon_initializer;
 pub mod launch_verifier;
 mod launcher;
