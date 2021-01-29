@@ -3,10 +3,11 @@
 #![cfg (target_os = "windows")]
 
 use crate::daemon::daemonization::daemonizer::{DaemonizerError, DaemonHandle, DaemonHandleFactory};
-use windows_service::{Error};
+use windows_service::{Error, service_dispatcher, service_control_handler};
 use std::ffi::{OsString};
 use windows_service::service_control_handler::{ServiceStatusHandle, ServiceControlHandlerResult};
-use windows_service::service::{ServiceControl, ServiceStatus};
+use windows_service::service::{ServiceControl, ServiceStatus, ServiceType, ServiceState, ServiceControlAccept, ServiceExitCode};
+use std::time::Duration;
 
 define_windows_service!(masqd, masqd_fn);
 
@@ -20,22 +21,42 @@ fn masqd_fn (arguments: Vec<OsString>) {
 }
 
 pub struct DaemonHandleReal {
-
+    status_handle: Box<dyn StatusHandleWrapper>
 }
 
 impl DaemonHandle for DaemonHandleReal {
     fn signal_termination(&self) {
-        unimplemented!()
+        self.status_handle.set_service_status(
+            ServiceStatus {
+                service_type: ServiceType::OWN_PROCESS,
+                current_state: ServiceState::StopPending,
+                controls_accepted: ServiceControlAccept::STOP,
+                exit_code: ServiceExitCode::Win32(1),
+                checkpoint: 0,
+                wait_hint: Duration::from_millis(1000),
+                process_id: None
+            }
+        );
     }
 
     fn finish_termination(&self) {
-        unimplemented!()
+        self.status_handle.set_service_status(
+            ServiceStatus {
+                service_type: ServiceType::OWN_PROCESS,
+                current_state: ServiceState::Stopped,
+                controls_accepted: ServiceControlAccept::STOP,
+                exit_code: ServiceExitCode::Win32(1),
+                checkpoint: 0,
+                wait_hint: Duration::from_millis(1000),
+                process_id: None
+            }
+        );
     }
 }
 
 impl DaemonHandleReal {
-    pub fn new() -> Self {
-        unimplemented!()
+    pub fn new(status_handle: Box<dyn StatusHandleWrapper>) -> Self {
+        Self { status_handle }
     }
 }
 
@@ -45,8 +66,20 @@ pub struct DaemonHandleFactoryReal {
 
 impl DaemonHandleFactory for DaemonHandleFactoryReal {
     fn make(&self) -> Result<Box<dyn DaemonHandle>, DaemonizerError> {
-        self.service_registrar.register ("masqd");
-        unimplemented!()
+        let status_handle = match self.service_registrar.register ("masqd") {
+            Ok(ssh) => ssh,
+            Err (e) => unimplemented!(),
+        };
+        status_handle.set_service_status(ServiceStatus {
+            service_type: ServiceType::OWN_PROCESS,
+            current_state: ServiceState::Running,
+            controls_accepted: ServiceControlAccept::STOP,
+            exit_code: ServiceExitCode::Win32(1),
+            checkpoint: 0,
+            wait_hint: Duration::from_millis(1000),
+            process_id: None
+        });
+        Ok(Box::new (DaemonHandleReal::new(status_handle)))
     }
 }
 
@@ -59,7 +92,7 @@ impl DaemonHandleFactoryReal {
 }
 
 trait ServiceRegistrar {
-    fn register(&self, service_name: &str) -> Result<ServiceStatusHandle, windows_service::Error>;
+    fn register(&self, service_name: &str) -> Result<Box<dyn StatusHandleWrapper>, windows_service::Error>;
     fn handle_event (&self, control: ServiceControl) -> ServiceControlHandlerResult;
 }
 
@@ -68,7 +101,7 @@ struct ServiceRegistrarReal {
 }
 
 impl ServiceRegistrar for ServiceRegistrarReal {
-    fn register(&self, service_name: &str) -> Result<ServiceStatusHandle, Error> {
+    fn register(&self, service_name: &str) -> Result<Box<dyn StatusHandleWrapper>, windows_service::Error> {
         unimplemented!()
     }
 
@@ -83,8 +116,8 @@ impl ServiceRegistrarReal {
     }
 }
 
-trait StatusHandleWrapper {
-    fn set_service_status(&self, service_status: ServiceStatus) -> Result<(), Error>;
+pub trait StatusHandleWrapper {
+    fn set_service_status(&self, service_status: ServiceStatus) -> Result<(), windows_service::Error>;
 }
 
 struct StatusHandleReal {
@@ -92,7 +125,7 @@ struct StatusHandleReal {
 }
 
 impl StatusHandleWrapper for StatusHandleReal {
-    fn set_service_status(&self, service_status: ServiceStatus) -> Result<(), Error> {
+    fn set_service_status(&self, service_status: ServiceStatus) -> Result<(), windows_service::Error> {
         self.status_handle.set_service_status(service_status)
     }
 }
@@ -108,6 +141,10 @@ mod tests {
     use super::*;
     use std::cell::RefCell;
     use std::sync::{Mutex, Arc};
+    use std::mem::{size_of, transmute};
+    use std::alloc::{Layout, alloc};
+    use windows_service::service::{ServiceType, ServiceState, ServiceControlAccept, ServiceExitCode};
+    use std::time::Duration;
 
     #[derive (Clone, PartialEq, Debug)]
     struct DaemonHandleMock {
@@ -132,13 +169,13 @@ mod tests {
 
     struct ServiceRegistrarMock {
         register_params: Arc<Mutex<Vec<String>>>,
-        register_results: RefCell<Vec<Result<ServiceStatusHandle, Error>>>,
+        register_results: RefCell<Vec<Result<Box<dyn StatusHandleWrapper>, Error>>>,
         handle_event_params: Arc<Mutex<Vec<ServiceControl>>>,
         handle_event_results: RefCell<Vec<ServiceControlHandlerResult>>,
     }
 
     impl ServiceRegistrar for ServiceRegistrarMock {
-        fn register(&self, service_name: &str) -> Result<ServiceStatusHandle, Error> {
+        fn register(&self, service_name: &str) -> Result<Box<dyn StatusHandleWrapper>, Error> {
             self.register_params.lock().unwrap().push (service_name.to_string());
             self.register_results.borrow_mut().remove(0)
         }
@@ -164,7 +201,7 @@ mod tests {
             self
         }
 
-        fn register_result (self, result: Result<ServiceStatusHandle, Error>) -> Self {
+        fn register_result (self, result: Result<Box<dyn StatusHandleWrapper>, Error>) -> Self {
             self.register_results.borrow_mut().push (result);
             self
         }
@@ -180,21 +217,121 @@ mod tests {
         }
     }
 
+    struct StatusHandleMock {
+        set_service_status_params: Arc<Mutex<Vec<ServiceStatus>>>,
+        set_service_status_results: RefCell<Vec<Result<(), windows_service::Error>>>
+    }
+
+    impl StatusHandleWrapper for StatusHandleMock {
+        fn set_service_status(&self, service_status: ServiceStatus) -> Result<(), windows_service::Error> {
+            self.set_service_status_params.lock().unwrap().push (service_status);
+            self.set_service_status_results.borrow_mut().remove(0)
+        }
+    }
+
+    impl StatusHandleMock {
+        fn new () -> Self {
+            Self{
+                set_service_status_params: Arc::new(Mutex::new(vec![])),
+                set_service_status_results: RefCell::new(vec![]),
+            }
+        }
+
+        fn set_service_status_params(mut self, params: &Arc<Mutex<Vec<ServiceStatus>>>) -> Self {
+            self.set_service_status_params = params.clone();
+            self
+        }
+
+        fn set_service_status_result (self, result: Result<(), windows_service::Error>) -> Self {
+            self.set_service_status_results.borrow_mut().push (result);
+            self
+        }
+    }
+
     #[test]
-    fn handle_factory_constructor_registers_service () {
+    fn handle_factory_constructor_works () {
+        let set_service_status_params_arc = Arc::new (Mutex::new (vec![]));
+        let status_handle = StatusHandleMock::new()
+            .set_service_status_params (&set_service_status_params_arc)
+            .set_service_status_result (Ok(()));
         let daemon_handle = DaemonHandleMock::new();
-        let service_status_params_arc = Arc::new (Mutex::new (vec![]));
-        let service_status_handle = what?
+        let register_params_arc = Arc::new (Mutex::new (vec![]));
         let service_registrar = ServiceRegistrarMock::new()
-            .register_params (&service_status_params_arc)
-            .register_result (Ok(service_status_handle));
+            .register_params (&register_params_arc)
+            .register_result (Ok(Box::new (status_handle)));
         let mut subject = DaemonHandleFactoryReal::new();
         subject.service_registrar = Box::new (service_registrar);
 
-        let result = subject.make ();
+        let result = subject.make();
 
         assert_eq! (result.is_ok(), true);
-        let service_status_params = service_status_params_arc.lock().unwrap();
-        assert_eq! (*service_status_params, vec!["masqd".to_string()])
+        let register_params = register_params_arc.lock().unwrap();
+        assert_eq! (*register_params, vec!["masqd".to_string()]);
+        let set_service_status_params = set_service_status_params_arc.lock().unwrap();
+        assert_eq! (*set_service_status_params, vec![
+            ServiceStatus {
+                service_type: ServiceType::OWN_PROCESS,
+                current_state: ServiceState::Running,
+                controls_accepted: ServiceControlAccept::STOP,
+                exit_code: ServiceExitCode::Win32(1),
+                checkpoint: 0,
+                wait_hint: Duration::from_millis(1000),
+                process_id: None
+            }
+        ])
+    }
+
+    #[test]
+    fn daemon_handle_signals_termination() {
+        let set_service_status_params_arc = Arc::new(Mutex::new(vec![]));
+        let status_handle = StatusHandleMock::new()
+            .set_service_status_params (&set_service_status_params_arc)
+            .set_service_status_result (Ok(()));
+        let mut subject = DaemonHandleReal::new(Box::new (status_handle));
+
+        subject.signal_termination();
+
+        let set_service_status_params = set_service_status_params_arc.lock().unwrap();
+        assert_eq! (*set_service_status_params, vec![
+            ServiceStatus {
+                service_type: ServiceType::OWN_PROCESS,
+                current_state: ServiceState::StopPending,
+                controls_accepted: ServiceControlAccept::STOP,
+                exit_code: ServiceExitCode::Win32(1),
+                checkpoint: 0,
+                wait_hint: Duration::from_millis(1000),
+                process_id: None
+            }
+        ])
+    }
+
+    #[test]
+    fn daemon_handle_finishes_termination() {
+        let set_service_status_params_arc = Arc::new(Mutex::new(vec![]));
+        let status_handle = StatusHandleMock::new()
+            .set_service_status_params (&set_service_status_params_arc)
+            .set_service_status_result(Ok(()));
+        let mut subject = DaemonHandleReal::new(Box::new (status_handle));
+
+        subject.finish_termination();
+
+        let set_service_status_params = set_service_status_params_arc.lock().unwrap();
+        assert_eq! (*set_service_status_params, vec![
+            ServiceStatus {
+                service_type: ServiceType::OWN_PROCESS,
+                current_state: ServiceState::Stopped,
+                controls_accepted: ServiceControlAccept::STOP,
+                exit_code: ServiceExitCode::Win32(1),
+                checkpoint: 0,
+                wait_hint: Duration::from_millis(1000),
+                process_id: None
+            }
+        ])
+    }
+
+    fn jackass_service_status_handle() -> ServiceStatusHandle {
+        let layout = Layout::new::<ServiceStatusHandle>();
+        let ptr = unsafe {alloc(layout)};
+        unsafe {transmute::<*mut u8, ServiceStatusHandle>(ptr)}
     }
 }
