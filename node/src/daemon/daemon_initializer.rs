@@ -15,9 +15,15 @@ use actix::{Actor, System, SystemRunner};
 use crossbeam_channel::{unbounded, Receiver, Sender};
 use flexi_logger::LevelFilter;
 use itertools::Itertools;
-use masq_lib::command::{Command, StdStreams};
+use masq_lib::command::{StdStreams};
 use std::collections::HashMap;
-use crate::daemon::daemonization::daemonizer::{Daemonizer, DaemonizerReal};
+use crate::daemon::daemonization::daemonizer::{DaemonHandleFactory};
+#[cfg(target_os = "linux")]
+use crate::daemon::daemonization::daemonizer_linux::DaemonHandleFactoryReal;
+#[cfg(target_os = "macos")]
+use crate::daemon::daemonization::daemonizer_macos::DaemonHandleFactoryReal;
+#[cfg(target_os = "windows")]
+use crate::daemon::daemonization::daemonizer_windows::DaemonHandleFactoryReal;
 
 pub trait RecipientsFactory {
     fn make(&self, launcher: Box<dyn Launcher>, ui_port: u16) -> Recipients;
@@ -64,28 +70,32 @@ impl ChannelFactory for ChannelFactoryReal {
 
 pub struct DaemonInitializer {
     config: InitializationConfig,
-    daemonizer: Box::<dyn Daemonizer>,
+    daemon_handle_factory: Box::<dyn DaemonHandleFactory>,
     channel_factory: Box<dyn ChannelFactory>,
     recipients_factory: Box<dyn RecipientsFactory>,
     rerunner: Box<dyn Rerunner>,
 }
 
-impl Command for DaemonInitializer {
-    fn go(&mut self, streams: &mut StdStreams<'_>, _args: &[String]) -> u8 {
+impl DaemonInitializer {
+    pub fn go(mut self, streams: &mut StdStreams<'_>, _args: &[String]) -> u8 {
         if port_is_busy(self.config.ui_port) {
-            writeln! (streams.stderr, "There appears to be a process already listening on port {}; are you sure there's not a Daemon already running?", self.config.ui_port).expect("writeln failed");
+            writeln!(streams.stderr, "There appears to be a process already listening on port {}; are you sure there's not a Daemon already running?", self.config.ui_port).expect("writeln failed");
             return 1;
         }
-        if let Err(e) = self.daemonizer.daemonize() {
-            writeln! (streams.stderr, "I could not daemonize the Daemon: {:?}", e).expect("writeln failed");
+        if let Err (e) = crate::daemon::daemonization::daemonizer::daemonize (|| {
+            let _handle = self.daemon_handle_factory.make()?;
+            let system = System::new("daemon");
+            let (sender, receiver) = self.channel_factory.make();
+
+            self.bind(sender);
+
+            self.split(system, receiver);
+
+            Ok(())
+        }) {
+            writeln!(streams.stderr, "I could not daemonize the Daemon: {:?}", e).expect("writeln failed");
             return 1;
         }
-        let system = System::new("daemon");
-        let (sender, receiver) = self.channel_factory.make();
-
-        self.bind(sender);
-
-        self.split(system, receiver);
         0
     }
 }
@@ -132,7 +142,7 @@ impl DaemonInitializer {
         );
         DaemonInitializer {
             config,
-            daemonizer: Box::new (DaemonizerReal::new()),
+            daemon_handle_factory: Box::new (DaemonHandleFactoryReal::new()),
             channel_factory,
             recipients_factory,
             rerunner,
@@ -186,7 +196,7 @@ mod tests {
     use std::iter::FromIterator;
     use std::net::{SocketAddr, TcpListener};
     use std::sync::{Arc, Mutex};
-    use crate::daemon::daemonization::daemonizer::DaemonizerError;
+    use crate::daemon::daemonization::daemonizer::{DaemonizerError, DaemonHandle};
 
     struct RecipientsFactoryMock {
         make_params: Arc<Mutex<Vec<(Box<dyn Launcher>, u16)>>>,
@@ -274,26 +284,48 @@ mod tests {
         }
     }
 
-    struct DaemonizerMock {
-        daemonize_results: RefCell<Vec<Result<(), DaemonizerError>>>,
+    struct DaemonHandleFactoryMock {
+        make_results: RefCell<Vec<Result<Box<dyn DaemonHandle>, DaemonizerError>>>,
     }
 
-    impl Daemonizer for DaemonizerMock {
-        fn daemonize(&self) -> Result<(), DaemonizerError> {
-            self.daemonize_results.borrow_mut().remove(0)
+    impl DaemonHandleFactory for DaemonHandleFactoryMock {
+        fn make(&self) -> Result<Box<dyn DaemonHandle>, DaemonizerError> {
+            self.make_results.borrow_mut().remove(0)
         }
     }
 
-    impl DaemonizerMock {
+    impl DaemonHandleFactoryMock {
         fn new () -> Self {
             Self {
-                daemonize_results: RefCell::new(vec![])
+                make_results: RefCell::new(vec![]),
             }
         }
 
-        fn daemonize_result (self, result: Result<(), DaemonizerError>) -> Self {
-            self.daemonize_results.borrow_mut().push (result);
+        fn make_result (self, result: Result<Box<dyn DaemonHandle>, DaemonizerError>) -> Self {
+            self.make_results.borrow_mut().push (result);
             self
+        }
+    }
+
+    struct DaemonHandleMock {
+
+    }
+
+    impl DaemonHandle for DaemonHandleMock {
+        fn signal_termination(&self) {
+            unimplemented!()
+        }
+
+        fn finish_termination(&self) {
+            unimplemented!()
+        }
+    }
+
+    impl DaemonHandleMock {
+        fn new () -> Self {
+            Self {
+
+            }
         }
     }
 
@@ -398,6 +430,8 @@ mod tests {
         let logger_initializer_wrapper = LoggerInitializerWrapperMock::new();
         let port = find_free_port();
         let _listener = TcpListener::bind(SocketAddr::new(localhost(), port)).unwrap();
+        let daemon_handle_factory = DaemonHandleFactoryMock::new()
+            .make_result(Ok(Box::new (DaemonHandleMock::new())));
         let mut subject = DaemonInitializer::new(
             &dirs_wrapper,
             Box::new(logger_initializer_wrapper),
@@ -406,6 +440,7 @@ mod tests {
             Box::new(RecipientsFactoryMock::new()),
             Box::new(RerunnerMock::new()),
         );
+        subject.daemon_handle_factory = Box::new(daemon_handle_factory);
         let mut holder = FakeStreamHolder::new();
 
         let result = subject.go(&mut holder.streams(), &[]);
@@ -425,9 +460,9 @@ mod tests {
             .data_dir_result(Some(data_dir));
         let logger_initializer_wrapper = LoggerInitializerWrapperMock::new();
         let port = find_free_port();
-        let daemonization_error = DaemonizerError::Other("booga".to_string());
-        let daemonizer = DaemonizerMock::new()
-            .daemonize_result(Err(DaemonizerError::Other("booga".to_string()).clone()));
+        let daemonizer_error = DaemonizerError::Other("booga".to_string());
+        let daemon_handle_factory = DaemonHandleFactoryMock::new()
+            .make_result(Err(daemonizer_error.clone()));
         let mut subject = DaemonInitializer::new(
             &dirs_wrapper,
             Box::new(logger_initializer_wrapper),
@@ -436,13 +471,13 @@ mod tests {
             Box::new(RecipientsFactoryMock::new()),
             Box::new(RerunnerMock::new()),
         );
-        subject.daemonizer = Box::new (daemonizer);
+        subject.daemon_handle_factory = Box::new (daemon_handle_factory);
         let mut holder = FakeStreamHolder::new();
 
         let result = subject.go(&mut holder.streams(), &[]);
 
         assert_eq!(result, 1);
-        assert_eq! (holder.stderr.get_string(), format!("I could not daemonize the Daemon: {:?}\n", daemonization_error));
+        assert_eq! (holder.stderr.get_string(), format!("I could not daemonize the Daemon: {:?}\n", daemonizer_error));
     }
 
     fn make_recipients(ui_gateway: Recorder, daemon: Recorder) -> Recipients {

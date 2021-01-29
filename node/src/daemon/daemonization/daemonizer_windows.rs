@@ -2,10 +2,11 @@
 
 #![cfg (target_os = "windows")]
 
-use crate::daemon::daemonization::daemonizer::{DaemonizerError, DaemonHandle};
+use crate::daemon::daemonization::daemonizer::{DaemonizerError, DaemonHandle, DaemonHandleFactory};
 
-pub fn daemonize() -> Result<DaemonHandle, DaemonizerError> {
-    unimplemented!()
+pub fn platform_daemonize<F: FnOnce() -> Result<(), DaemonizerError>>(daemon_code: F) -> Result<(), DaemonizerError> {
+    daemon_code ()?;
+    Ok(())
 }
 
 pub struct DaemonHandleReal {
@@ -25,5 +26,19 @@ impl DaemonHandle for DaemonHandleReal {
 impl DaemonHandleReal {
     pub fn new() -> Self {
         unimplemented!()
+    }
+}
+
+pub struct DaemonHandleFactoryReal {}
+
+impl DaemonHandleFactory for DaemonHandleFactoryReal {
+    fn make(&self) -> Result<Box<dyn DaemonHandle>, DaemonizerError> {
+        unimplemented!()
+    }
+}
+
+impl DaemonHandleFactoryReal {
+    pub fn new() -> Self {
+        Self {}
     }
 }

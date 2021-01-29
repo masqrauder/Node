@@ -5,33 +5,23 @@ pub enum DaemonizerError {
     Other(String)
 }
 
-pub trait Daemonizer {
-    fn daemonize(&self) -> Result<DaemonHandle, DaemonizerError>;
-}
-
-pub struct DaemonizerReal {
-}
-
-impl Daemonizer for DaemonizerReal {
-    fn daemonize(&self) -> Result<DaemonHandle, DaemonizerError> {
-        #[cfg(target_os = "linux")]
-        return crate::daemon::daemonization::daemonizer_linux::daemonize();
-
-        #[cfg(target_os = "macos")]
-        return crate::daemon::daemonization::daemonizer_macos::daemonize();
-
-        #[cfg(target_os = "windows")]
-        return crate::daemon::daemonization::daemonizer_windows::daemonize()
-    }
-}
-
-impl DaemonizerReal {
-    pub fn new() -> Self {
-        Self{}
-    }
-}
-
 pub trait DaemonHandle {
     fn signal_termination(&self);
     fn finish_termination(&self);
+}
+
+pub trait DaemonHandleFactory {
+    fn make (&self) -> Result<Box<dyn DaemonHandle>, DaemonizerError>;
+}
+
+pub fn daemonize<F: FnOnce() -> Result<(), DaemonizerError>>(daemon_code: F) -> Result<(), DaemonizerError> {
+
+    #[cfg(target_os = "linux")]
+    return crate::daemon::daemonization::daemonizer_linux::platform_daemonize(daemon_code);
+
+    #[cfg(target_os = "macos")]
+    return crate::daemon::daemonization::daemonizer_macos::platform_daemonize(daemon_code);
+
+    #[cfg(target_os = "windows")]
+    return crate::daemon::daemonization::daemonizer_windows::platform_daemonize(daemon_code);
 }

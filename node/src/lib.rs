@@ -51,4 +51,3 @@ mod stream_writer_unsorted;
 pub mod test_utils;
 pub mod tls_discriminator_factory;
 pub mod ui_gateway;
-pub mod win_services;

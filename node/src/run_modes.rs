@@ -175,7 +175,7 @@ impl Runner for RunnerReal {
     ) -> Result<i32, ConfiguratorError> {
         let configurator = NodeConfiguratorInitialization {};
         let config = configurator.configure(args, streams)?;
-        let mut initializer = DaemonInitializer::new(
+        let initializer = DaemonInitializer::new(
             &RealDirsWrapper {},
             Box::new(LoggerInitializerWrapperReal {}),
             config,
