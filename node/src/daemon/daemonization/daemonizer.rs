@@ -18,14 +18,14 @@ pub trait DaemonHandleFactory {
     fn make (&self) -> Result<Box<dyn DaemonHandle>, DaemonizerError>;
 }
 
-pub fn daemonize<F: FnOnce() -> Result<(), DaemonizerError>>(daemon_starter: Box<dyn DaemonStarter>, daemon_code: F) -> Result<(), DaemonizerError> {
+pub fn daemonize<F: FnOnce() -> Result<(), DaemonizerError>>(daemon_code: F) -> Result<(), DaemonizerError> {
 
     #[cfg(target_os = "linux")]
-    return crate::daemon::daemonization::daemonizer_linux::platform_daemonize(daemon_starter, daemon_code);
+    unimplemented!();
 
     #[cfg(target_os = "macos")]
-    return crate::daemon::daemonization::daemonizer_macos::platform_daemonize(daemon_starter, daemon_code);
+    unimplemented!();
 
     #[cfg(target_os = "windows")]
-    return crate::daemon::daemonization::daemonizer_windows::platform_daemonize(daemon_starter, daemon_code);
+    return crate::daemon::daemonization::daemonizer_windows::platform_daemonize(daemon_code);
 }

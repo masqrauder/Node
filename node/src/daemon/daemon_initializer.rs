@@ -24,7 +24,6 @@ use crate::daemon::daemonization::daemonizer_linux::DaemonHandleFactoryReal;
 use crate::daemon::daemonization::daemonizer_macos::DaemonHandleFactoryReal;
 #[cfg(target_os = "windows")]
 use crate::daemon::daemonization::daemonizer_windows::DaemonHandleFactoryReal;
-use crate::daemon::daemonization::daemonizer_windows::DaemonStarterReal;
 
 pub trait RecipientsFactory {
     fn make(&self, launcher: Box<dyn Launcher>, ui_port: u16) -> Recipients;
@@ -84,7 +83,6 @@ impl DaemonInitializer {
             return 1;
         }
         if let Err (e) = crate::daemon::daemonization::daemonizer::daemonize (
-            Box::new (DaemonStarterReal::new()),
             || {
                 let _handle = self.daemon_handle_factory.make()?;
                 let system = System::new("daemon");
