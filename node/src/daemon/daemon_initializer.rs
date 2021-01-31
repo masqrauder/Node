@@ -24,6 +24,7 @@ use crate::daemon::daemonization::daemonizer_linux::DaemonHandleFactoryReal;
 use crate::daemon::daemonization::daemonizer_macos::DaemonHandleFactoryReal;
 #[cfg(target_os = "windows")]
 use crate::daemon::daemonization::daemonizer_windows::DaemonHandleFactoryReal;
+use crate::daemon::daemonization::daemonizer_windows::DaemonStarterReal;
 
 pub trait RecipientsFactory {
     fn make(&self, launcher: Box<dyn Launcher>, ui_port: u16) -> Recipients;
@@ -82,17 +83,20 @@ impl DaemonInitializer {
             writeln!(streams.stderr, "There appears to be a process already listening on port {}; are you sure there's not a Daemon already running?", self.config.ui_port).expect("writeln failed");
             return 1;
         }
-        if let Err (e) = crate::daemon::daemonization::daemonizer::daemonize (|| {
-            let _handle = self.daemon_handle_factory.make()?;
-            let system = System::new("daemon");
-            let (sender, receiver) = self.channel_factory.make();
+        if let Err (e) = crate::daemon::daemonization::daemonizer::daemonize (
+            Box::new (DaemonStarterReal::new()),
+            || {
+                let _handle = self.daemon_handle_factory.make()?;
+                let system = System::new("daemon");
+                let (sender, receiver) = self.channel_factory.make();
 
-            self.bind(sender);
+                self.bind(sender);
 
-            self.split(system, receiver);
+                self.split(system, receiver);
 
-            Ok(())
-        }) {
+                Ok(())
+            }
+        ) {
             writeln!(streams.stderr, "I could not daemonize the Daemon: {:?}", e).expect("writeln failed");
             return 1;
         }
