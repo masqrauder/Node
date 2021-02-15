@@ -18,7 +18,7 @@ pub trait DaemonHandleFactory {
     fn make (&self) -> Result<Box<dyn DaemonHandle>, DaemonizerError>;
 }
 
-pub fn daemonize<F: FnOnce() -> Result<(), DaemonizerError>>(daemon_code: F) -> Result<(), DaemonizerError> {
+pub fn daemonize<F: FnOnce() -> Result<(), DaemonizerError> + 'static>(daemon_code: F) -> Result<(), DaemonizerError> {
 
     #[cfg(target_os = "linux")]
     unimplemented!();

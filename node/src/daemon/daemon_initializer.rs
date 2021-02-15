@@ -83,7 +83,7 @@ impl DaemonInitializer {
             return 1;
         }
         if let Err (e) = crate::daemon::daemonization::daemonizer::daemonize (
-            || {
+            move || {
                 let _handle = self.daemon_handle_factory.make()?;
                 let system = System::new("daemon");
                 let (sender, receiver) = self.channel_factory.make();
