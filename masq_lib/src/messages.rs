@@ -1,4 +1,4 @@
-// Copyright (c) 2019-2020, MASQ (https://masq.ai). All rights reserved.
+// Copyright (c) 2019-2021, MASQ (https://masq.ai). All rights reserved.
 
 use crate::messages::UiMessageError::{DeserializationError, PayloadError, UnexpectedMessage};
 use crate::shared_schema::ConfiguratorError;
@@ -14,13 +14,6 @@ use std::fmt;
 use std::fmt::Debug;
 
 pub const NODE_UI_PROTOCOL: &str = "MASQNode-UIv2";
-
-pub const NODE_LAUNCH_ERROR: u64 = 0x8000_0000_0000_0001;
-pub const NODE_NOT_RUNNING_ERROR: u64 = 0x8000_0000_0000_0002;
-pub const NODE_ALREADY_RUNNING_ERROR: u64 = 0x8000_0000_0000_0003;
-pub const UNMARSHAL_ERROR: u64 = 0x8000_0000_0000_0004;
-pub const SETUP_ERROR: u64 = 0x8000_0000_0000_0005;
-pub const TIMEOUT_ERROR: u64 = 0x8000_0000_0000_0006;
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum UiMessageError {
@@ -77,11 +70,11 @@ macro_rules! fire_and_forget_message {
             }
 
             fn opcode(&self) -> &'static str {
-                Self::type_opcode()
+                $opcode
             }
 
             fn is_conversational(&self) -> bool {
-                Self::type_is_conversational()
+                false
             }
         }
 
@@ -103,16 +96,6 @@ macro_rules! fire_and_forget_message {
                 Ok((payload, 0))
             }
         }
-
-        impl $message_type {
-            pub fn type_opcode() -> &'static str {
-                $opcode
-            }
-
-            pub fn type_is_conversational() -> bool {
-                false
-            }
-        }
     };
 }
 
@@ -129,11 +112,11 @@ macro_rules! conversation_message {
             }
 
             fn opcode(&self) -> &'static str {
-                Self::type_opcode()
+                $opcode
             }
 
             fn is_conversational(&self) -> bool {
-                Self::type_is_conversational()
+                true
             }
         }
 
@@ -156,16 +139,6 @@ macro_rules! conversation_message {
                     }
                 };
                 Ok((payload, context_id))
-            }
-        }
-
-        impl $message_type {
-            pub fn type_opcode() -> &'static str {
-                $opcode
-            }
-
-            pub fn type_is_conversational() -> bool {
-                true
             }
         }
     };
@@ -444,67 +417,36 @@ pub struct UiCheckPasswordResponse {
 conversation_message!(UiCheckPasswordResponse, "checkPassword");
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
-pub struct UiWalletAddressesRequest {
-    #[serde(rename = "dbPassword")]
-    pub db_password: String,
-}
-
-conversation_message!(UiWalletAddressesRequest, "walletAddresses");
-
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
-pub struct UiWalletAddressesResponse {
-    #[serde(rename = "consumingWalletAddress")]
-    pub consuming_wallet_address: String,
-    #[serde(rename = "earningWalletAddress")]
-    pub earning_wallet_address: String,
-}
-conversation_message!(UiWalletAddressesResponse, "walletAddresses");
-
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct UiConfigurationChangedBroadcast {}
 fire_and_forget_message!(UiConfigurationChangedBroadcast, "configurationChanged");
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct UiConfigurationRequest {
     #[serde(rename = "dbPasswordOpt")]
-    db_password_opt: Option<String>,
+    pub db_password_opt: Option<String>,
 }
 conversation_message!(UiConfigurationRequest, "configuration");
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct UiConfigurationResponse {
     #[serde(rename = "currentSchemaVersion")]
-    current_schema_version: String,
+    pub current_schema_version: String,
     #[serde(rename = "clandestinePort")]
-    clandestine_port: u16,
+    pub clandestine_port: u16,
     #[serde(rename = "gasPrice")]
-    gas_price: u64,
+    pub gas_price: u64,
     #[serde(rename = "mnemonicSeedOpt")]
-    mnemonic_seed_opt: Option<String>,
+    pub mnemonic_seed_opt: Option<String>,
     #[serde(rename = "consumingWalletDerivationPathOpt")]
-    consuming_wallet_derivation_path_opt: Option<String>,
+    pub consuming_wallet_derivation_path_opt: Option<String>,
     #[serde(rename = "earningWalletAddressOpt")]
-    earning_wallet_address_opt: Option<String>,
+    pub earning_wallet_address_opt: Option<String>,
     #[serde(rename = "pastNeighbors")]
-    past_neighbors: Vec<String>,
+    pub past_neighbors: Vec<String>,
     #[serde(rename = "startBlock")]
-    start_block: u64,
+    pub start_block: u64,
 }
 conversation_message!(UiConfigurationResponse, "configuration");
-
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
-pub struct UiConsumingWallet {
-    #[serde(rename = "derivationPath")]
-    pub derivation_path: String,
-    pub address: String,
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
-pub struct UiEarningWallet {
-    #[serde(rename = "derivationPathOpt")]
-    pub derivation_path_opt: Option<String>,
-    pub address: String,
-}
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct UiDescriptorRequest {}
@@ -611,12 +553,41 @@ pub struct UiRecoverWalletsResponse {}
 conversation_message!(UiRecoverWalletsResponse, "recoverWallet");
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+pub struct UiSetConfigurationRequest {
+    pub name: String,
+    pub value: String,
+}
+conversation_message!(UiSetConfigurationRequest, "setConfiguration");
+
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+pub struct UiSetConfigurationResponse {}
+
+conversation_message!(UiSetConfigurationResponse, "setConfiguration");
+
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub struct UiShutdownRequest {}
 conversation_message!(UiShutdownRequest, "shutdown");
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub struct UiShutdownResponse {}
 conversation_message!(UiShutdownResponse, "shutdown");
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+pub struct UiWalletAddressesRequest {
+    #[serde(rename = "dbPassword")]
+    pub db_password: String,
+}
+
+conversation_message!(UiWalletAddressesRequest, "walletAddresses");
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+pub struct UiWalletAddressesResponse {
+    #[serde(rename = "consumingWalletAddress")]
+    pub consuming_wallet_address: String,
+    #[serde(rename = "earningWalletAddress")]
+    pub earning_wallet_address: String,
+}
+conversation_message!(UiWalletAddressesResponse, "walletAddresses");
 
 #[cfg(test)]
 mod tests {

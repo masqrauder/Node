@@ -1,4 +1,4 @@
-// Copyright (c) 2019-2020, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
+// Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::command_context::CommandContext;
 use crate::commands::commands_common::{
@@ -6,6 +6,7 @@ use crate::commands::commands_common::{
 };
 use clap::{App, SubCommand};
 use masq_lib::messages::{UiStartOrder, UiStartResponse};
+use masq_lib::short_writeln;
 use std::default::Default;
 use std::fmt::Debug;
 
@@ -24,13 +25,12 @@ impl Command for StartCommand {
             transaction(out_message, context, STANDARD_COMMAND_TIMEOUT_MILLIS);
         match result {
             Ok(response) => {
-                writeln!(
+                short_writeln!(
                     context.stdout(),
                     "MASQNode successfully started in process {} on port {}",
                     response.new_process_id,
-                    response.redirect_ui_port,
-                )
-                .expect("write! failed");
+                    response.redirect_ui_port
+                );
                 Ok(())
             }
             Err(e) => Err(e),

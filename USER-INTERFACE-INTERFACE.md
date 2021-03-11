@@ -284,7 +284,7 @@ may not have any database password at all.
 
 There's no way to make the Node tell you what the database password is, but if you have an idea
 what it might be, you can check your idea by sending this message with your idea in the
-`dbPasswordOpt` field. If you're checking to see whether there's no password, omit this
+`dbPasswordOpt` field. If you're checking to see whether there's no password, pass `null` in this
 field.
 
 #### `checkPassword`
@@ -314,8 +314,6 @@ code, where the high-order eight bits are 0x01.
 }
 ```
 ##### Description:
-NOTE: This message is planned, but not yet implemented.
-
 This message requests a dump of the Node's current configuration information. If you know the database password,
 provide it, and the response will contain the secrets in the database. If you don't supply a password, or you
 do but it's wrong, you'll still get a response, but it will have only public information: the secrets will be
@@ -343,8 +341,6 @@ Another reason the secrets might be missing is that there are not yet any secret
 }
 ```
 ##### Description:
-NOTE: This message is planned, but not yet implemented.
-
 This conveys the Node's current configuration information. Some of it is optional: if it's missing, it might be
 because it hasn't been configured yet, or it might be because it's secret and you didn't provide the correct
 database password. If you want to know whether the password you have is the correct one, try the
@@ -357,7 +353,7 @@ version. If this attempt fails for some reason, this value can be used to diagno
 
 * `clandestinePort`: The port on which the Node is currently listening for connections from other Nodes.
 
-* `gasPrice`: The Node will not pay more than this number of Gwei for gas to complete a transaction.
+* `gasPrice`: The Node will not pay more than this number of wei for gas to complete a transaction.
 
 * `mnemonicSeedOpt`: This is a secret string of hexadecimal digits that corresponds exactly with the mnemonic
 phrase, plus any "25th word" mnemonic passphrase. You won't see this if the password isn't correct. You also
@@ -705,6 +701,40 @@ The `payload` field is a string of JSON, containing the payload of the unrecogni
 The UI should disconnect from the Daemon, connect to the Node on `localhost` at the indicated port,
 reconstruct the original message from the `opcode`, `contextId`, and `payload` fields, and send it to the
 Node.
+
+#### `setConfiguration`
+##### Direction: Request
+##### Correspondent: Node
+##### Layout:
+```
+"payload": {
+    "name": <string>,
+    "value": <string>
+}
+```
+*Note: the design of this message is likely to change in the future. A field for the database password will appear. 
+At the current time, there are no parameters requiring the password among those supported by this command.*
+
+##### Description:
+This is a message used to change a parameter whilst the Node is running. The range of supported parameters (available
+to be set by this command) may get larger with time.
+
+The `name` field in the payload is the name of the parameter which the user wants to modify and has this form:
+e.g. start-block or gas-price (with a dash between words).
+
+The `value` field in the payload is the value to be assigned to the parameter. It must always be specified as a string,
+even for parameters whose values are natively of other types.  
+
+#### `setConfiguration`
+##### Direction: Response
+##### Correspondent: Node
+##### Layout:
+```
+"payload": {
+}
+```
+##### Description:
+If the value of the respective parameter was successfully changed, this is a simple acknowledgment that the change is complete.
 
 #### `setup`
 ##### Direction: Request

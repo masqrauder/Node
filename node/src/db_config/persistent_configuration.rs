@@ -22,6 +22,7 @@ pub enum PersistentConfigError {
     PasswordError,
     TransactionError,
     DatabaseError(String),
+    BadPortNumber(String),
     BadNumberFormat(String),
     BadHexFormat(String),
     BadMnemonicSeed(PlainData),
@@ -77,9 +78,9 @@ pub trait PersistentConfiguration {
         old_password_opt: Option<String>,
         new_password: &str,
     ) -> Result<(), PersistentConfigError>;
-    fn clandestine_port(&self) -> Result<Option<u16>, PersistentConfigError>;
+    fn clandestine_port(&self) -> Result<u16, PersistentConfigError>;
     fn set_clandestine_port(&mut self, port: u16) -> Result<(), PersistentConfigError>;
-    fn gas_price(&self) -> Result<Option<u64>, PersistentConfigError>;
+    fn gas_price(&self) -> Result<u64, PersistentConfigError>;
     fn set_gas_price(&mut self, gas_price: u64) -> Result<(), PersistentConfigError>;
     fn mnemonic_seed(&self, db_password: &str) -> Result<Option<PlainData>, PersistentConfigError>;
     fn mnemonic_seed_exists(&self) -> Result<bool, PersistentConfigError>;
@@ -107,7 +108,7 @@ pub trait PersistentConfiguration {
         node_descriptors_opt: Option<Vec<NodeDescriptor>>,
         db_password: &str,
     ) -> Result<(), PersistentConfigError>;
-    fn start_block(&self) -> Result<Option<u64>, PersistentConfigError>;
+    fn start_block(&self) -> Result<u64, PersistentConfigError>;
     fn set_start_block(&mut self, value: u64) -> Result<(), PersistentConfigError>;
 }
 
@@ -148,9 +149,9 @@ impl PersistentConfiguration for PersistentConfigurationReal {
         Ok(writer.commit()?)
     }
 
-    fn clandestine_port(&self) -> Result<Option<u16>, PersistentConfigError> {
+    fn clandestine_port(&self) -> Result<u16, PersistentConfigError> {
         let unchecked_port = match decode_u64(self.dao.get("clandestine_port")?.value_opt)? {
-            None => return Ok(None),
+            None => panic!("ever-supplied value missing; database is corrupt!"),
             Some(port) => port,
         };
         if (unchecked_port < u64::from(LOWEST_USABLE_INSECURE_PORT))
@@ -163,29 +164,32 @@ impl PersistentConfiguration for PersistentConfigurationReal {
             );
         }
         let port = unchecked_port as u16;
-        match TcpListener::bind (SocketAddrV4::new (Ipv4Addr::from (0), port)) {
-            Ok (_) => Ok(Some(port)),
-            Err (e) => panic!("Can't continue; clandestine port {} is in use. ({:?}) Specify --clandestine-port <p> where <p> is an unused port between {} and {}.",
-                port,
-                e,
-                LOWEST_USABLE_INSECURE_PORT,
-                HIGHEST_USABLE_PORT,
-            )
-        }
+        Ok(port)
     }
 
     fn set_clandestine_port(&mut self, port: u16) -> Result<(), PersistentConfigError> {
         if port < LOWEST_USABLE_INSECURE_PORT {
-            panic!("Can't continue; clandestine port configuration is incorrect. Must be between {} and {}, not {}. Specify --clandestine-port <p> where <p> is an unused port.",
-                    LOWEST_USABLE_INSECURE_PORT, HIGHEST_USABLE_PORT, port);
+            return Err(PersistentConfigError::BadPortNumber(format!(
+                "Must be greater than 1024; not {}",
+                port
+            )));
+        }
+        if TcpListener::bind(SocketAddrV4::new(Ipv4Addr::from(0), port)).is_err() {
+            return Err(PersistentConfigError::BadPortNumber(format!(
+                "Must be open port: {} is in use",
+                port
+            )));
         }
         let mut writer = self.dao.start_transaction()?;
         writer.set("clandestine_port", encode_u64(Some(u64::from(port)))?)?;
         Ok(writer.commit()?)
     }
 
-    fn gas_price(&self) -> Result<Option<u64>, PersistentConfigError> {
-        Ok(decode_u64(self.dao.get("gas_price")?.value_opt)?)
+    fn gas_price(&self) -> Result<u64, PersistentConfigError> {
+        match decode_u64(self.dao.get("gas_price")?.value_opt) {
+            Ok(val) => Ok(val.expect("ever-supplied value missing; database is corrupt!")),
+            Err(e) => Err(PersistentConfigError::from(e)),
+        }
     }
 
     fn set_gas_price(&mut self, gas_price: u64) -> Result<(), PersistentConfigError> {
@@ -340,8 +344,11 @@ impl PersistentConfiguration for PersistentConfigurationReal {
         Ok(writer.commit()?)
     }
 
-    fn start_block(&self) -> Result<Option<u64>, PersistentConfigError> {
-        Ok(decode_u64(self.dao.get("start_block")?.value_opt)?)
+    fn start_block(&self) -> Result<u64, PersistentConfigError> {
+        match decode_u64(self.dao.get("start_block")?.value_opt) {
+            Ok(val) => Ok(val.expect("ever-supplied value missing; database is corrupt!")),
+            Err(e) => Err(PersistentConfigError::from(e)),
+        }
     }
 
     fn set_start_block(&mut self, value: u64) -> Result<(), PersistentConfigError> {
@@ -535,6 +542,19 @@ mod tests {
     }
 
     #[test]
+    #[should_panic(expected = "ever-supplied value missing; database is corrupt!")]
+    fn clandestine_port_panics_if_none_got_from_database() {
+        let config_dao = ConfigDaoMock::new().get_result(Ok(ConfigDaoRecord::new(
+            "clandestine_port",
+            None,
+            false,
+        )));
+        let subject = PersistentConfigurationReal::new(Box::new(config_dao));
+
+        subject.clandestine_port().unwrap();
+    }
+
+    #[test]
     #[should_panic(
         expected = "Can't continue; clandestine port configuration is incorrect. Must be between 1025 and 65535, not 65536. Specify --clandestine-port <p> where <p> is an unused port."
     )]
@@ -565,24 +585,6 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(
-        expected = "Specify --clandestine-port <p> where <p> is an unused port between 1025 and 65535."
-    )]
-    fn clandestine_port_panics_if_configured_port_is_in_use() {
-        let port = find_free_port();
-        let config_dao = ConfigDaoMock::new().get_result(Ok(ConfigDaoRecord::new(
-            "clandestine_port",
-            Some(&format!("{}", port)),
-            false,
-        )));
-        let subject = PersistentConfigurationReal::new(Box::new(config_dao));
-        let _listener =
-            TcpListener::bind(SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::from(0), port))).unwrap();
-
-        subject.clandestine_port().unwrap();
-    }
-
-    #[test]
     fn clandestine_port_success() {
         let get_params_arc = Arc::new(Mutex::new(vec![]));
         let config_dao = ConfigDaoMock::new()
@@ -596,20 +598,44 @@ mod tests {
 
         let result = subject.clandestine_port().unwrap();
 
-        assert_eq!(Some(4747), result);
+        assert_eq!(result, 4747);
         let get_params = get_params_arc.lock().unwrap();
         assert_eq!(*get_params, vec!["clandestine_port".to_string()]);
     }
 
     #[test]
-    #[should_panic(
-        expected = "Can't continue; clandestine port configuration is incorrect. Must be between 1025 and 65535, not 1024. Specify --clandestine-port <p> where <p> is an unused port."
-    )]
-    fn set_clandestine_port_panics_if_configured_port_is_too_low() {
+    fn set_clandestine_port_complains_if_configured_port_is_too_low() {
         let config_dao = ConfigDaoMock::new();
         let mut subject = PersistentConfigurationReal::new(Box::new(config_dao));
 
-        subject.set_clandestine_port(1024).unwrap();
+        let result = subject.set_clandestine_port(1024);
+
+        assert_eq!(
+            result,
+            Err(PersistentConfigError::BadPortNumber(
+                "Must be greater than 1024; not 1024".to_string()
+            ))
+        )
+    }
+
+    #[test]
+    fn set_clandestine_port_complains_if_configured_port_is_in_use() {
+        let config_dao = ConfigDaoMock::new();
+        let mut subject = PersistentConfigurationReal::new(Box::new(config_dao));
+
+        let port = find_free_port();
+        let _listener =
+            TcpListener::bind(SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::from(0), port))).unwrap();
+
+        let result = subject.set_clandestine_port(port);
+
+        assert_eq!(
+            result,
+            Err(PersistentConfigError::BadPortNumber(format!(
+                "Must be open port: {} is in use",
+                port
+            )))
+        );
     }
 
     #[test]
@@ -1346,7 +1372,20 @@ mod tests {
 
         let start_block = subject.start_block().unwrap();
 
-        assert_eq!(start_block, Some(6));
+        assert_eq!(start_block, 6);
+    }
+
+    #[test]
+    #[should_panic(expected = "ever-supplied value missing; database is corrupt!")]
+    fn start_block_does_not_tolerate_optional_output() {
+        let config_dao = Box::new(ConfigDaoMock::new().get_result(Ok(ConfigDaoRecord::new(
+            "start_block",
+            None,
+            false,
+        ))));
+        let subject = PersistentConfigurationReal::new(config_dao);
+
+        let _ = subject.start_block();
     }
 
     #[test]
@@ -1383,7 +1422,20 @@ mod tests {
         let subject = PersistentConfigurationReal::new(config_dao);
         let gas_price = subject.gas_price().unwrap();
 
-        assert_eq!(gas_price, Some(3));
+        assert_eq!(gas_price, 3);
+    }
+
+    #[test]
+    #[should_panic(expected = "ever-supplied value missing; database is corrupt!")]
+    fn gas_price_does_not_tolerate_optional_output() {
+        let config_dao = Box::new(ConfigDaoMock::new().get_result(Ok(ConfigDaoRecord::new(
+            "gas_price",
+            None,
+            false,
+        ))));
+        let subject = PersistentConfigurationReal::new(config_dao);
+
+        let _ = subject.gas_price();
     }
 
     #[test]

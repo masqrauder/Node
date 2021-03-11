@@ -1,7 +1,12 @@
+// Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
+
 use crate::command_context::CommandContext;
-use crate::commands::commands_common::{transaction, Command, CommandError};
+use crate::commands::commands_common::{
+    transaction, Command, CommandError, STANDARD_COMMAND_TIMEOUT_MILLIS,
+};
 use clap::{App, Arg, SubCommand};
 use masq_lib::messages::{UiGenerateWalletsRequest, UiGenerateWalletsResponse};
+use masq_lib::short_writeln;
 use masq_lib::utils::DEFAULT_CONSUMING_DERIVATION_PATH;
 use masq_lib::utils::DEFAULT_EARNING_DERIVATION_PATH;
 use std::any::Any;
@@ -61,26 +66,23 @@ impl Command for GenerateWalletsCommand {
             consuming_derivation_path: self.consuming_path.clone(),
             earning_derivation_path: self.earning_path.clone(),
         };
-        let response: UiGenerateWalletsResponse = transaction(input, context, 1000)?;
-        writeln!(
+        let response: UiGenerateWalletsResponse =
+            transaction(input, context, STANDARD_COMMAND_TIMEOUT_MILLIS)?;
+        short_writeln!(
             context.stdout(),
             "Copy this phrase down and keep it safe; you'll need it to restore your wallet:"
-        )
-        .expect("writeln! failed");
-        writeln!(context.stdout(), "'{}'", response.mnemonic_phrase.join(" "))
-            .expect("writeln! failed");
-        writeln!(
+        );
+        short_writeln!(context.stdout(), "'{}'", response.mnemonic_phrase.join(" "));
+        short_writeln!(
             context.stdout(),
             "Address of consuming wallet: {}",
             response.consuming_wallet_address
-        )
-        .expect("writeln! failed");
-        writeln!(
+        );
+        short_writeln!(
             context.stdout(),
             "Address of   earning wallet: {}",
             response.earning_wallet_address
-        )
-        .expect("writeln! failed");
+        );
         Ok(())
     }
 

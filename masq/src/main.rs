@@ -1,4 +1,4 @@
-// Copyright (c) 2019-2020, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
+// Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use masq_cli_lib::command_factory::CommandFactoryError::{CommandSyntax, UnrecognizedSubcommand};
 use masq_cli_lib::command_factory::{CommandFactory, CommandFactoryReal};
@@ -9,6 +9,7 @@ use masq_cli_lib::communications::broadcast_handler::StreamFactoryReal;
 use masq_cli_lib::utils::{BufReadFactory, BufReadFactoryReal};
 use masq_lib::command;
 use masq_lib::command::{Command, StdStreams};
+use masq_lib::short_writeln;
 use std::io;
 use std::io::BufRead;
 
@@ -40,7 +41,7 @@ impl command::Command for Main {
         {
             Ok(processor) => processor,
             Err(e) => {
-                writeln!(streams.stderr, "Can't connect to Daemon or Node ({:?}). Probably this means the Daemon isn't running.", e).expect ("writeln! failed");
+                short_writeln!(streams.stderr, "Can't connect to Daemon or Node ({:?}). Probably this means the Daemon isn't running.", e);
                 return 1;
             }
         };
@@ -82,7 +83,6 @@ impl Main {
     fn accept_subcommand(stdin: &mut dyn BufRead) -> Result<Option<Vec<String>>, std::io::Error> {
         let mut line = String::new();
         match stdin.read_line(&mut line) {
-            Ok(0) => Ok(None),
             Ok(_) => Ok(Some(Self::split_quoted_line(line))),
             Err(e) => Err(e),
         }
@@ -122,9 +122,9 @@ impl Main {
         loop {
             let args = match Self::accept_subcommand(&mut line_reader) {
                 Ok(Some(args)) => args,
-                Ok(None) => break,
+                Ok(None) => break, //EOF
                 Err(e) => {
-                    writeln!(streams.stderr, "{:?}", e.kind()).expect("writeln! failed");
+                    short_writeln!(streams.stderr, "{:?}", e.kind());
                     return 1;
                 }
             };
@@ -151,16 +151,16 @@ impl Main {
         let command = match self.command_factory.make(command_parts) {
             Ok(c) => c,
             Err(UnrecognizedSubcommand(msg)) => {
-                writeln!(stderr, "Unrecognized command: '{}'", msg).expect("writeln! failed");
+                short_writeln!(stderr, "Unrecognized command: '{}'", msg);
                 return Err(());
             }
             Err(CommandSyntax(msg)) => {
-                writeln!(stderr, "{}", msg).expect("writeln! failed");
+                short_writeln!(stderr, "{}", msg);
                 return Err(());
             }
         };
         if let Err(e) = processor.process(command) {
-            writeln!(stderr, "{}", e).expect("writeln! failed");
+            short_writeln!(stderr, "{}", e);
             Err(())
         } else {
             Ok(())
@@ -342,7 +342,7 @@ mod tests {
             command_factory: Box::new(command_factory),
             processor_factory: Box::new(processor_factory),
             buf_read_factory: Box::new(
-                BufReadFactoryMock::new().make_interactive_result("setup\nstart\nexit\n"),
+                BufReadFactoryMock::new().make_interactive_result("setup\n\nstart\nexit\n"),
             ),
         };
         let mut stream_holder = FakeStreamHolder::new();
@@ -391,52 +391,6 @@ mod tests {
         );
         let close_params = close_params_arc.lock().unwrap();
         assert_eq!(close_params.len(), 1);
-    }
-
-    #[test]
-    fn interactive_mode_works_for_eof_on_stdin() {
-        let command_factory = CommandFactoryMock::new();
-        let close_params_arc = Arc::new(Mutex::new(vec![]));
-        let processor = CommandProcessorMock::new().close_params(&close_params_arc);
-        let processor_factory =
-            CommandProcessorFactoryMock::new().make_result(Ok(Box::new(processor)));
-        let buf_read_factory = BufReadFactoryMock::new().make_interactive_result("");
-        let mut subject = Main {
-            command_factory: Box::new(command_factory),
-            processor_factory: Box::new(processor_factory),
-            buf_read_factory: Box::new(buf_read_factory),
-        };
-        let mut stream_holder = FakeStreamHolder::new();
-
-        let result = subject.go(&mut stream_holder.streams(), &["command".to_string()]);
-
-        assert_eq!(result, 0);
-        let close_params = close_params_arc.lock().unwrap();
-        assert_eq!(close_params.len(), 1);
-    }
-
-    #[test]
-    fn interactive_mode_works_for_blank_command() {
-        let make_params_arc = Arc::new(Mutex::new(vec![]));
-        let command_factory = CommandFactoryMock::new()
-            .make_params(&make_params_arc)
-            .make_result(Ok(Box::new(FakeCommand::new("setup command"))));
-        let processor = CommandProcessorMock::new().process_result(Ok(()));
-        let processor_factory =
-            CommandProcessorFactoryMock::new().make_result(Ok(Box::new(processor)));
-        let buf_read_factory = BufReadFactoryMock::new().make_interactive_result("\nsetup\nexit\n");
-        let mut subject = Main {
-            command_factory: Box::new(command_factory),
-            processor_factory: Box::new(processor_factory),
-            buf_read_factory: Box::new(buf_read_factory),
-        };
-        let mut stream_holder = FakeStreamHolder::new();
-
-        let result = subject.go(&mut stream_holder.streams(), &["command".to_string()]);
-
-        assert_eq!(result, 0);
-        let make_params = make_params_arc.lock().unwrap();
-        assert_eq!(*make_params, vec![vec!["setup".to_string()]]);
     }
 
     #[test]

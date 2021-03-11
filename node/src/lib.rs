@@ -11,6 +11,7 @@ extern crate clap;
 extern crate masq_lib;
 
 #[macro_use]
+#[cfg(target_os = "windows")]
 extern crate windows_service;
 
 #[cfg(test)]

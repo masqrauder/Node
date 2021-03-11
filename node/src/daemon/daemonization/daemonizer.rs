@@ -1,8 +1,8 @@
 // Copyright (c) 2019-2021, MASQ (https://masq.ai). All rights reserved.
 
-#[derive (PartialEq, Clone, Debug)]
+#[derive(PartialEq, Clone, Debug)]
 pub enum DaemonizerError {
-    Other(String)
+    Other(String),
 }
 
 pub trait DaemonStarter {
@@ -15,11 +15,12 @@ pub trait DaemonHandle {
 }
 
 pub trait DaemonHandleFactory {
-    fn make (&self) -> Result<Box<dyn DaemonHandle>, DaemonizerError>;
+    fn make(&self) -> Result<Box<dyn DaemonHandle>, DaemonizerError>;
 }
 
-pub fn daemonize<F: FnOnce() -> Result<(), DaemonizerError> + 'static>(daemon_code: F) -> Result<(), DaemonizerError> {
-
+pub fn daemonize<F: FnOnce() -> Result<(), DaemonizerError> + 'static>(
+    daemon_code: F,
+) -> Result<(), DaemonizerError> {
     #[cfg(target_os = "linux")]
     unimplemented!();
 

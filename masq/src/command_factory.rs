@@ -1,17 +1,19 @@
-// Copyright (c) 2019-2020, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
+// Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::command_factory::CommandFactoryError::{CommandSyntax, UnrecognizedSubcommand};
 use crate::commands::change_password_command::ChangePasswordCommand;
 use crate::commands::check_password_command::CheckPasswordCommand;
 use crate::commands::commands_common::Command;
+use crate::commands::configuration_command::ConfigurationCommand;
 use crate::commands::crash_command::CrashCommand;
 use crate::commands::descriptor_command::DescriptorCommand;
 use crate::commands::generate_wallets_command::GenerateWalletsCommand;
 use crate::commands::recover_wallets_command::RecoverWalletsCommand;
+use crate::commands::set_configuration_command::SetConfigurationCommand;
 use crate::commands::setup_command::SetupCommand;
 use crate::commands::shutdown_command::ShutdownCommand;
 use crate::commands::start_command::StartCommand;
-use crate::commands::wallet_addresses::WalletAddressesCommand;
+use crate::commands::wallet_addresses_command::WalletAddressesCommand;
 
 #[derive(Debug, PartialEq)]
 pub enum CommandFactoryError {
@@ -37,6 +39,10 @@ impl CommandFactory for CommandFactoryReal {
                 Ok(command) => Box::new(command),
                 Err(msg) => return Err(CommandSyntax(msg)),
             },
+            "configuration" => match ConfigurationCommand::new(pieces) {
+                Ok(command) => Box::new(command),
+                Err(msg) => return Err(CommandSyntax(msg)),
+            },
             "crash" => match CrashCommand::new(pieces) {
                 Ok(command) => Box::new(command),
                 Err(msg) => return Err(CommandSyntax(msg)),
@@ -47,6 +53,10 @@ impl CommandFactory for CommandFactoryReal {
                 Err(msg) => return Err(CommandSyntax(msg)),
             },
             "recover-wallets" => match RecoverWalletsCommand::new(pieces) {
+                Ok(command) => Box::new(command),
+                Err(msg) => return Err(CommandSyntax(msg)),
+            },
+            "set-configuration" => match SetConfigurationCommand::new(pieces) {
                 Ok(command) => Box::new(command),
                 Err(msg) => return Err(CommandSyntax(msg)),
             },
@@ -203,6 +213,46 @@ mod tests {
     }
 
     #[test]
+    fn factory_produces_set_configuration() {
+        let subject = CommandFactoryReal::new();
+
+        let command = subject
+            .make(vec![
+                "set-configuration".to_string(),
+                "--gas-price".to_string(),
+                "20".to_string(),
+            ])
+            .unwrap();
+
+        assert_eq!(
+            command
+                .as_any()
+                .downcast_ref::<SetConfigurationCommand>()
+                .unwrap(),
+            &SetConfigurationCommand {
+                name: "gas-price".to_string(),
+                value: "20".to_string(),
+            }
+        );
+    }
+
+    #[test]
+    fn complains_about_set_configuration_command_with_no_parameters() {
+        let subject = CommandFactoryReal::new();
+
+        let result = subject
+            .make(vec!["set-configuration".to_string()])
+            .err()
+            .unwrap();
+
+        let msg = match result {
+            CommandSyntax(msg) => msg,
+            x => panic!("Expected syntax error, got {:?}", x),
+        };
+        assert!(msg.contains("error: The following required arguments were not provided:"));
+    }
+
+    #[test]
     fn complains_about_setup_command_with_bad_syntax() {
         let subject = CommandFactoryReal::new();
 
@@ -217,6 +267,33 @@ mod tests {
         };
         assert_eq!(msg.contains("Found argument '"), true, "{}", msg);
         assert_eq!(msg.contains("--booga"), true, "{}", msg);
+        assert_eq!(
+            msg.contains("which wasn't expected, or isn't valid in this context"),
+            true,
+            "{}",
+            msg
+        );
+    }
+
+    #[test]
+    fn complains_about_configuration_command_with_bad_syntax() {
+        let subject = CommandFactoryReal::new();
+
+        let result = subject
+            .make(vec![
+                "configuration".to_string(),
+                "--invalid".to_string(),
+                "booga".to_string(),
+            ])
+            .err()
+            .unwrap();
+
+        let msg = match result {
+            CommandSyntax(msg) => msg,
+            x => panic!("Expected syntax error, got {:?}", x),
+        };
+        assert_eq!(msg.contains("Found argument"), true, "{}", msg);
+        assert_eq!(msg.contains("--invalid"), true, "{}", msg);
         assert_eq!(
             msg.contains("which wasn't expected, or isn't valid in this context"),
             true,
