@@ -31,7 +31,7 @@ indoc = "0.3.4"
 itertools = "0.10.0"
 lazy_static = "1.4.0"
 libsecp256k1 = "0.2.2"
-log = "0.4.13"
+log = "0.4.14"
 masq_lib = { path = "../masq_lib" }
 pretty-hex = "0.2.1"
 primitive-types = {version = "0.8.0", default-features = false, features = ["default", "rlp", "serde"]}
