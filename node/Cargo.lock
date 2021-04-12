@@ -448,9 +448,9 @@ dependencies = [
 
 [[package]]
 name = "crossbeam-channel"
-version = "0.5.0"
+version = "0.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dca26ee1f8d361640700bde38b2c37d8c22b3ce2d360e1fc1c74ea4b0aa7d775"
+checksum = "06ed27e177f16d65f0f0c22a213e17c696ace5dd64b14258b52f9417ccb52db4"
 dependencies = [
  "cfg-if 1.0.0",
  "crossbeam-utils 0.8.0",
@@ -1688,7 +1688,7 @@ name = "masq"
 version = "1.0.0"
 dependencies = [
  "clap",
- "crossbeam-channel 0.5.0",
+ "crossbeam-channel 0.5.1",
  "lazy_static",
  "masq_lib",
  "rustyline",
@@ -1701,7 +1701,7 @@ version = "1.0.0"
 dependencies = [
  "actix",
  "clap",
- "crossbeam-channel 0.4.4",
+ "crossbeam-channel 0.5.1",
  "itertools",
  "lazy_static",
  "regex",
@@ -1834,7 +1834,7 @@ name = "multinode_integration_tests"
 version = "1.0.0"
 dependencies = [
  "base64 0.13.0",
- "crossbeam-channel 0.5.0",
+ "crossbeam-channel 0.5.1",
  "ethereum-types",
  "ethsign-crypto 0.2.1",
  "futures",
@@ -1929,7 +1929,7 @@ dependencies = [
  "bytes 0.4.12",
  "chrono",
  "clap",
- "crossbeam-channel 0.5.0",
+ "crossbeam-channel 0.5.1",
  "daemonize",
  "dirs",
  "ethereum-types",
