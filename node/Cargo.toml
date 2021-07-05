@@ -34,7 +34,7 @@ libsecp256k1 = "0.2.2"
 log = "0.4.13"
 masq_lib = { path = "../masq_lib" }
 pretty-hex = "0.2.1"
-primitive-types = {version = "0.8.0", default-features = false, features = ["default", "rlp", "serde"]}
+primitive-types = {version = "0.10.1", default-features = false, features = ["default", "rlp", "serde"]}
 rand = {version = "0.7.0", features = ["getrandom", "small_rng"]}
 regex = "1.4.3"
 rlp = "0.4.2"
