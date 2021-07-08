@@ -9,7 +9,7 @@ edition = "2018"
 
 [dependencies]
 regex = "1.4.3"
-libc = "0.2.86"
+libc = "0.2.98"
 masq_lib = { path = "../masq_lib" }
 ipconfig = "0.2.2"
 
