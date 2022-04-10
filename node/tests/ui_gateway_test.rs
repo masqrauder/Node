@@ -1,4 +1,4 @@
-// Copyright (c) 2017-2018, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
+// Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 pub mod utils;
 
@@ -17,6 +17,9 @@ fn dispatcher_message_integration() {
     let mut node = utils::MASQNode::start_standard(
         "dispatcher_message_integration",
         Some(CommandConfig::new().pair("--ui-port", &port.to_string())),
+        true,
+        true,
+        false,
         true,
     );
     node.wait_for_log("UIGateway bound", Some(5000));
@@ -39,6 +42,9 @@ fn request_financial_information_integration() {
     let mut node = utils::MASQNode::start_standard(
         "request_financial_information_integration",
         Some(CommandConfig::new().pair("--ui-port", &port.to_string())),
+        true,
+        true,
+        false,
         true,
     );
     node.wait_for_log("UIGateway bound", Some(5000));

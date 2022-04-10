@@ -1,4 +1,4 @@
-// Copyright (c) 2019-2021, MASQ (https://masq.ai). All rights reserved.
+// Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::messages::{FromMessageBody, ToMessageBody, UiMessageError};
 use crate::ui_gateway::MessagePath::Conversation;
@@ -95,7 +95,13 @@ impl UiConnection {
         let result: Result<(T, u64), UiMessageError> = T::fmb(incoming_msg.body);
         match result {
             Ok((payload, _)) => Ok(payload),
-            Err(UiMessageError::PayloadError(code, message)) => Err((code, message)),
+            Err(UiMessageError::PayloadError(message_body)) => {
+                let payload_error = message_body
+                    .payload
+                    .err()
+                    .expect("PayloadError message body contained no payload error");
+                Err(payload_error)
+            }
             Err(e) => panic!("Deserialization problem for {}: {:?}", opcode, e),
         }
     }

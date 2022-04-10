@@ -1,9 +1,9 @@
-// Copyright (c) 2019-2021, MASQ (https://masq.ai). All rights reserved.
+// Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::daemon::launch_verifier::LaunchVerification::{
     CleanFailure, DirtyFailure, InterventionRequired, Launched,
 };
-use crate::sub_lib::logger::Logger;
+use masq_lib::logger::Logger;
 use masq_lib::messages::NODE_UI_PROTOCOL;
 use std::thread;
 use std::time::Duration;
@@ -39,7 +39,7 @@ impl VerifierTools for VerifierToolsReal {
 
     fn process_is_running(&self, process_id: u32) -> bool {
         let system = Self::system();
-        let process_info_opt = system.get_process(Self::convert_pid(process_id));
+        let process_info_opt = system.process(Self::convert_pid(process_id));
         match process_info_opt {
             None => false,
             Some(process) => {
@@ -50,7 +50,7 @@ impl VerifierTools for VerifierToolsReal {
     }
 
     fn kill_process(&self, process_id: u32) {
-        if let Some(process) = Self::system().get_process(Self::convert_pid(process_id)) {
+        if let Some(process) = Self::system().process(Self::convert_pid(process_id)) {
             if !process.kill(Signal::Term) && !process.kill(Signal::Kill) {
                 error!(
                     self.logger,
@@ -109,9 +109,7 @@ impl VerifierToolsReal {
 
     #[cfg(target_os = "windows")]
     fn is_alive(process_status: ProcessStatus) -> bool {
-        match process_status {
-            ProcessStatus::Run => true,
-        }
+        !matches!(process_status, ProcessStatus::Dead | ProcessStatus::Zombie)
     }
 }
 
@@ -203,6 +201,14 @@ mod tests {
     use std::sync::{Arc, Mutex};
     use std::time::Instant;
     use websocket::server::sync::Server;
+
+    #[test]
+    fn constants_have_correct_values() {
+        assert_eq!(DELAY_FOR_RESPONSE_MS, 10000);
+        assert_eq!(RESPONSE_CHECK_INTERVAL_MS, 250);
+        assert_eq!(DELAY_FOR_DEATH_MS, 1000);
+        assert_eq!(DEATH_CHECK_INTERVAL_MS, 250);
+    }
 
     #[test]
     fn detects_successful_launch_after_two_attempts() {
