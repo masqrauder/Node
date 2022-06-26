@@ -22,7 +22,7 @@ native-tls = "0.2.8"
 node = { path = "../node", features = [ "expose_test_privates" ] }
 pretty-hex = "0.2.1"
 primitive-types = {version = "0.5.0", default-features = false, features = ["default", "rlp", "serde"] }
-regex = "1.5.4"
+regex = "1.5.5"
 rusqlite = {version = "0.26.1", features = ["bundled"]}
 rustc-hex = "2.1.0"
 serde = "1.0.130"
