@@ -8,23 +8,27 @@ use crate::node_configurator::{DirsWrapper, DirsWrapperReal};
 use crate::run_modes_factories::{RunModeResult, ServerInitializer};
 use crate::sub_lib::socket_server::ConfiguredByPrivilege;
 use backtrace::Backtrace;
+use clap::value_t;
 use flexi_logger::{
     Cleanup, Criterion, DeferredNow, Duplicate, LevelFilter, LogSpecBuilder, Logger, Naming, Record,
 };
 use futures::try_ready;
 use lazy_static::lazy_static;
+use log::{log, Level};
 use masq_lib::command::StdStreams;
-use masq_lib::multi_config::MultiConfig;
+use masq_lib::logger;
+use masq_lib::logger::{real_format_function, POINTER_TO_FORMAT_FUNCTION};
 use masq_lib::shared_schema::ConfiguratorError;
-use masq_lib::test_utils::utils::real_format_function;
 use std::any::Any;
 use std::io;
 use std::panic::{Location, PanicInfo};
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, MutexGuard};
+use time::OffsetDateTime;
 use tokio::prelude::{Async, Future};
 
 pub struct ServerInitializerReal {
+    #[allow(dead_code)]
     dns_socket_server: Box<dyn ConfiguredByPrivilege<Item = (), Error = ()>>,
     bootstrapper: Box<dyn ConfiguredByPrivilege<Item = (), Error = ()>>,
     privilege_dropper: Box<dyn PrivilegeDropper>,
@@ -33,37 +37,43 @@ pub struct ServerInitializerReal {
 
 impl ServerInitializer for ServerInitializerReal {
     fn go(&mut self, streams: &mut StdStreams<'_>, args: &[String]) -> RunModeResult {
-        let params = server_initializer_collected_params(self.dirs_wrapper.as_ref(), args)?;
+        let multi_config = server_initializer_collected_params(self.dirs_wrapper.as_ref(), args)?;
+        let real_user = value_m!(multi_config, "real-user", RealUser)
+            .expect("ServerInitializer: Real user not present in Multi Config");
+        let data_directory = value_m!(multi_config, "data-directory", String)
+            .expect("ServerInitializer: Data directory not present in Multi Config");
 
+        // TODO: GH-525: This card should bring back the commented out code for dns_socket_server
         let result: RunModeResult = Ok(())
-            .combine_results(
-                self.dns_socket_server
-                    .as_mut()
-                    .initialize_as_privileged(&params.multi_config),
-            )
+            // .combine_results(
+            //     self.dns_socket_server
+            //         .as_mut()
+            //         .initialize_as_privileged(&multi_config),
+            // )
             .combine_results(
                 self.bootstrapper
                     .as_mut()
-                    .initialize_as_privileged(&params.multi_config),
+                    .initialize_as_privileged(&multi_config),
             );
 
         self.privilege_dropper
-            .chown(&params.data_directory, &params.real_user);
-        self.privilege_dropper.drop_privileges(&params.real_user);
+            .chown(Path::new(data_directory.as_str()), &real_user);
+
+        self.privilege_dropper.drop_privileges(&real_user);
 
         result
-            .combine_results(
-                self.dns_socket_server
-                    .as_mut()
-                    .initialize_as_unprivileged(&params.multi_config, streams),
-            )
+            // .combine_results(
+            //     self.dns_socket_server
+            //         .as_mut()
+            //         .initialize_as_unprivileged(&multi_config, streams),
+            // )
             .combine_results(
                 self.bootstrapper
                     .as_mut()
-                    .initialize_as_unprivileged(&params.multi_config, streams),
+                    .initialize_as_unprivileged(&multi_config, streams),
             )
     }
-    as_any_impl!();
+    as_any_ref_in_trait_impl!();
 }
 
 impl Future for ServerInitializerReal {
@@ -71,11 +81,12 @@ impl Future for ServerInitializerReal {
     type Error = ();
 
     fn poll(&mut self) -> Result<Async<<Self as Future>::Item>, <Self as Future>::Error> {
-        try_ready!(self
-            .dns_socket_server
-            .as_mut()
-            .join(self.bootstrapper.as_mut())
-            .poll());
+        // try_ready!(self
+        //     .dns_socket_server
+        //     .as_mut()
+        //     .join(self.bootstrapper.as_mut())
+        //     .poll());
+        try_ready!(self.bootstrapper.as_mut().poll());
         Ok(Async::Ready(()))
     }
 }
@@ -86,7 +97,7 @@ impl Default for ServerInitializerReal {
             dns_socket_server: Box::new(DnsSocketServer::new()),
             bootstrapper: Box::new(Bootstrapper::new(Box::new(LoggerInitializerWrapperReal {}))),
             privilege_dropper: Box::new(PrivilegeDropperReal::new()),
-            dirs_wrapper: Box::new(DirsWrapperReal),
+            dirs_wrapper: Box::new(DirsWrapperReal::default()),
         }
     }
 }
@@ -107,26 +118,6 @@ impl ResultsCombiner for RunModeResult {
                     .chain(e2.param_errors.into_iter())
                     .collect(),
             )),
-        }
-    }
-}
-
-pub struct GatheredParams<'a> {
-    pub multi_config: MultiConfig<'a>,
-    pub data_directory: PathBuf,
-    pub real_user: RealUser,
-}
-
-impl<'a> GatheredParams<'a> {
-    pub fn new(
-        multi_config: MultiConfig<'a>,
-        data_directory: PathBuf,
-        real_user: RealUser,
-    ) -> Self {
-        Self {
-            multi_config,
-            data_directory,
-            real_user,
         }
     }
 }
@@ -190,6 +181,14 @@ impl LoggerInitializerWrapper for LoggerInitializerWrapperReal {
         std::panic::set_hook(Box::new(|panic_info| {
             panic_hook(AltPanicInfo::from(panic_info))
         }));
+
+        // Info level is not shown within the log
+        log!(Level::Info, "{}", logger::Logger::log_file_heading());
+
+        unsafe {
+            // This resets the format function after specialized formatting for the log heading is used.
+            POINTER_TO_FORMAT_FUNCTION = real_format_function;
+        }
     }
 }
 
@@ -265,10 +264,11 @@ fn panic_hook(panic_info: AltPanicInfo) {
 // DeferredNow can't be constructed in a test; therefore this function is untestable.
 fn format_function(
     write: &mut dyn io::Write,
-    now: &mut DeferredNow,
+    _now: &mut DeferredNow,
     record: &Record,
 ) -> Result<(), io::Error> {
-    real_format_function(write, now.now(), record)
+    let pointer_to_format_function = unsafe { POINTER_TO_FORMAT_FUNCTION };
+    pointer_to_format_function(write, OffsetDateTime::now_utc(), record)
 }
 
 #[cfg(test)]
@@ -395,13 +395,13 @@ pub mod tests {
     use crate::test_utils::unshared_test_utils::make_pre_populated_mocked_directory_wrapper;
     use masq_lib::constants::DEFAULT_CHAIN;
     use masq_lib::crash_point::CrashPoint;
-    use masq_lib::multi_config::{make_arg_matches_accesible, MultiConfig};
+    use masq_lib::multi_config::MultiConfig;
     use masq_lib::shared_schema::{ConfiguratorError, ParamError};
     use masq_lib::test_utils::fake_stream_holder::{
         ByteArrayReader, ByteArrayWriter, FakeStreamHolder,
     };
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
-    use masq_lib::utils::array_of_borrows_to_vec;
+    use masq_lib::utils::slice_of_strs_to_vec_of_strings;
     use std::cell::RefCell;
     use std::ops::Not;
     use std::sync::{Arc, Mutex};
@@ -542,7 +542,8 @@ pub mod tests {
             self.arg_matches_requested_entries = required
                 .iter()
                 .map(|key| {
-                    make_arg_matches_accesible(multi_config)
+                    multi_config
+                        .arg_matches_ref()
                         .value_of(key)
                         .unwrap()
                         .to_string()
@@ -702,7 +703,7 @@ pub mod tests {
             stderr,
         };
         subject
-            .go(streams, &array_of_borrows_to_vec(&["MASQNode"]))
+            .go(streams, &slice_of_strs_to_vec_of_strings(&["MASQNode"]))
             .unwrap();
         let res = subject.wait();
 
@@ -728,7 +729,8 @@ pub mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "EntryDnsServerMock was instructed to panic")]
+    // TODO: GH-525: It should panic
+    // #[should_panic(expected = "EntryDnsServerMock was instructed to panic")]
     fn server_initializer_dns_socket_server_panics() {
         let bootstrapper = CrashTestDummy::new(CrashPoint::None, BootstrapperConfig::new());
         let privilege_dropper = PrivilegeDropperMock::new();
@@ -778,7 +780,7 @@ pub mod tests {
             .initialize_as_unprivileged_result(Ok(()))
             .initialize_as_privileged_params(&bootstrapper_init_privileged_params_arc)
             .initialize_as_unprivileged_params(&bootstrapper_init_unprivileged_params_arc)
-            .define_demanded_values_from_multi_config(array_of_borrows_to_vec(&[
+            .define_demanded_values_from_multi_config(slice_of_strs_to_vec_of_strings(&[
                 "dns-servers",
                 "real-user",
             ]));
@@ -787,7 +789,7 @@ pub mod tests {
             .initialize_as_unprivileged_result(Ok(()))
             .initialize_as_privileged_params(&dns_socket_server_privileged_params_arc)
             .initialize_as_unprivileged_params(&dns_socket_server_unprivileged_params_arc)
-            .define_demanded_values_from_multi_config(array_of_borrows_to_vec(&[
+            .define_demanded_values_from_multi_config(slice_of_strs_to_vec_of_strings(&[
                 "dns-servers",
                 "real-user",
             ]));
@@ -814,7 +816,7 @@ pub mod tests {
 
         let result = subject.go(
             streams,
-            &array_of_borrows_to_vec(&[
+            &slice_of_strs_to_vec_of_strings(&[
                 "MASQNode",
                 "--real-user",
                 "123:456:/home/alice",
@@ -842,8 +844,8 @@ pub mod tests {
         [
             bootstrapper_init_privileged_params_arc,
             bootstrapper_init_unprivileged_params_arc,
-            dns_socket_server_privileged_params_arc,
-            dns_socket_server_unprivileged_params_arc,
+            // dns_socket_server_privileged_params_arc, // TODO: GH-525: Fix me
+            // dns_socket_server_unprivileged_params_arc,
         ]
         .iter()
         .for_each(|arc_params| {
@@ -883,19 +885,21 @@ pub mod tests {
             privilege_dropper: Box::new(privilege_dropper),
             dirs_wrapper: Box::new(make_pre_populated_mocked_directory_wrapper()),
         };
-        let args = array_of_borrows_to_vec(&["MASQNode", "--real-user", "123:123:/home/alice"]);
+        let args =
+            slice_of_strs_to_vec_of_strings(&["MASQNode", "--real-user", "123:123:/home/alice"]);
         let stderr = ByteArrayWriter::new();
         let mut holder = FakeStreamHolder::new();
         holder.stderr = stderr;
 
         let result = subject.go(&mut holder.streams(), &args);
 
+        // TODO: GH-525: Fix me
         assert_eq!(
             result,
             Err(ConfiguratorError::new(vec![
-                ParamError::new("dns-iap", "dns-iap-reason"),
+                // ParamError::new("dns-iap", "dns-iap-reason"),
                 ParamError::new("boot-iap", "boot-iap-reason"),
-                ParamError::new("dns-iau", "dns-iau-reason"),
+                // ParamError::new("dns-iau", "dns-iau-reason"),
                 ParamError::new("boot-iau", "boot-iau-reason")
             ]))
         );

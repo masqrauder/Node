@@ -6,20 +6,19 @@ use crate::commands::commands_common::{
 };
 use clap::{App, Arg, ArgGroup, SubCommand};
 use itertools::{Either, Itertools};
-use masq_lib::as_any_impl;
+use masq_lib::as_any_ref_in_trait_impl;
 use masq_lib::messages::{UiRecoverSeedSpec, UiRecoverWalletsRequest, UiRecoverWalletsResponse};
 use masq_lib::short_writeln;
-#[cfg(test)]
-use std::any::Any;
+use masq_lib::utils::to_string;
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct SeedSpec {
     mnemonic_phrase: Vec<String>,
     language: String,
     passphrase_opt: Option<String>,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct RecoverWalletsCommand {
     db_password: String,
     seed_spec_opt: Option<SeedSpec>,
@@ -36,12 +35,12 @@ impl RecoverWalletsCommand {
 
         let mnemonic_phrase_opt = matches
             .value_of("mnemonic-phrase")
-            .map(|mpv| mpv.split(' ').map(|x| x.to_string()).collect_vec());
+            .map(|mpv| mpv.split(' ').map(to_string).collect_vec());
         let language = matches
             .value_of("language")
             .expect("language is not properly defaulted by clap")
             .to_string();
-        let passphrase_opt = matches.value_of("passphrase").map(|mp| mp.to_string());
+        let passphrase_opt = matches.value_of("passphrase").map(to_string);
         let seed_spec_opt = mnemonic_phrase_opt.map(|mnemonic_phrase| SeedSpec {
             mnemonic_phrase,
             language,
@@ -121,28 +120,28 @@ impl Command for RecoverWalletsCommand {
         Ok(())
     }
 
-    as_any_impl!();
+    as_any_ref_in_trait_impl!();
 }
 
 const RECOVER_WALLETS_ABOUT: &str =
-    "Recovers a pair of wallets (consuming and earning) for the Node if they haven't been recovered already";
+    "Recovers a pair of wallets (consuming and earning) for the Node if they haven't been recovered already.";
 const DB_PASSWORD_ARG_HELP: &str =
-    "The current database password (a password must be set to use this command)";
+    "The current database password (a password must be set to use this command).";
 const MNEMONIC_PHRASE_ARG_HELP: &str =
     "The mnemonic phrase upon which the consuming wallet (and possibly the earning wallet) is based. \
      Surround with double quotes.";
 const PASSPHRASE_ARG_HELP: &str =
-    "An additional word--any word--to place at the end of the mnemonic phrase to recover the wallet pair";
-const LANGUAGE_ARG_HELP: &str = "The language in which the wallets' mnemonic phrase is written";
+    "An additional word--any word--to place at the end of the mnemonic phrase to recover the wallet pair.";
+const LANGUAGE_ARG_HELP: &str = "The language in which the wallets' mnemonic phrase is written.";
 const CONSUMING_PATH_ARG_HELP: &str =
     "Derivation that was used to generate the consuming wallet from which your bills will be paid. \
-     Remember to put it in double quotes; otherwise the single quotes will cause problems";
+     Remember to put it in double quotes; otherwise the single quotes will cause problems.";
 const CONSUMING_KEY_ARG_HELP: &str =
     "The private key of the consuming wallet. Represent it as a 64-character string of hexadecimal digits.";
 const EARNING_PATH_ARG_HELP: &str =
     "Derivation path that was used to generate the earning wallet from which your bills will be paid. \
      Can be the same as consuming-path. Remember to put it in double quotes; otherwise the single \
-     quotes will cause problems";
+     quotes will cause problems.";
 const EARNING_ADDRESS_ARG_HELP: &str =
     "The address of the earning wallet. Represent it as '0x' followed by 40 hexadecimal digits.";
 const LANGUAGE_ARG_POSSIBLE_VALUES: [&str; 8] = [
@@ -254,11 +253,11 @@ mod tests {
         assert_eq!(
             RECOVER_WALLETS_ABOUT,
             "Recovers a pair of wallets (consuming and earning) for the Node if they haven't been \
-             recovered already"
+             recovered already."
         );
         assert_eq!(
             DB_PASSWORD_ARG_HELP,
-            "The current database password (a password must be set to use this command)"
+            "The current database password (a password must be set to use this command)."
         );
         assert_eq!(
             MNEMONIC_PHRASE_ARG_HELP,
@@ -267,16 +266,16 @@ mod tests {
         assert_eq!(
             PASSPHRASE_ARG_HELP,
             "An additional word--any word--to place at the end of the mnemonic phrase to recover \
-             the wallet pair"
+             the wallet pair."
         );
         assert_eq!(
             LANGUAGE_ARG_HELP,
-            "The language in which the wallets' mnemonic phrase is written"
+            "The language in which the wallets' mnemonic phrase is written."
         );
         assert_eq!(
             CONSUMING_PATH_ARG_HELP,
             "Derivation that was used to generate the consuming wallet from which your bills will \
-             be paid. Remember to put it in double quotes; otherwise the single quotes will cause problems"
+             be paid. Remember to put it in double quotes; otherwise the single quotes will cause problems."
         );
         assert_eq!(
             CONSUMING_KEY_ARG_HELP,
@@ -287,7 +286,7 @@ mod tests {
             EARNING_PATH_ARG_HELP,
             "Derivation path that was used to generate the earning wallet from which your bills \
              will be paid. Can be the same as consuming-path. Remember to put it in double quotes; \
-             otherwise the single quotes will cause problems"
+             otherwise the single quotes will cause problems."
         );
         assert_eq!(
             EARNING_ADDRESS_ARG_HELP,
@@ -340,7 +339,7 @@ mod tests {
                 db_password: "password".to_string(),
                 seed_spec_opt: Some (SeedSpec {
                     mnemonic_phrase: "river message view churn potato cabbage craft luggage tape month observe obvious"
-                        .split(" ").into_iter().map(|x| x.to_string()).collect(),
+                        .split(" ").into_iter().map(to_string).collect(),
                     passphrase_opt: Some("booga".to_string()),
                     language: "English".to_string(),
                 }),

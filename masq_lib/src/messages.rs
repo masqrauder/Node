@@ -4,6 +4,7 @@ use crate::messages::UiMessageError::{DeserializationError, PayloadError, Unexpe
 use crate::shared_schema::ConfiguratorError;
 use crate::ui_gateway::MessageBody;
 use crate::ui_gateway::MessagePath::{Conversation, FireAndForget};
+use crate::utils::to_string;
 use itertools::Itertools;
 use serde::de::DeserializeOwned;
 use serde_derive::{Deserialize, Serialize};
@@ -14,7 +15,7 @@ use std::str::FromStr;
 
 pub const NODE_UI_PROTOCOL: &str = "MASQNode-UIv2";
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum UiMessageError {
     UnexpectedMessage(MessageBody),
     PayloadError(MessageBody),
@@ -184,15 +185,14 @@ macro_rules! conversation_message {
 ///////////////////////////////////////////////////////////////////////
 // These messages are sent only to and/or by the Daemon, not the Node
 ///////////////////////////////////////////////////////////////////////
-
 // if a fire-and-forget message for the Node was detected but the Node is down
-#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
 pub struct UiUndeliveredFireAndForget {
     pub opcode: String,
 }
 fire_and_forget_message!(UiUndeliveredFireAndForget, "undelivered");
 
-#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
 pub struct UiCrashRequest {
     pub actor: String,
     #[serde(rename = "panicMessage")]
@@ -209,7 +209,7 @@ impl UiCrashRequest {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
 pub struct UiSetupRequestValue {
     pub name: String,
     pub value: Option<String>,
@@ -231,7 +231,7 @@ impl UiSetupRequestValue {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
 pub struct UiSetupRequest {
     pub values: Vec<UiSetupRequestValue>,
 }
@@ -244,14 +244,14 @@ impl UiSetupRequest {
                 .into_iter()
                 .map(|(name, value)| UiSetupRequestValue {
                     name: name.to_string(),
-                    value: value.map(|v| v.to_string()),
+                    value: value.map(to_string),
                 })
                 .collect(),
         }
     }
 }
 
-#[derive(Serialize, Deserialize, Copy, Clone, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Copy, Clone, Debug, PartialEq, Eq)]
 pub enum UiSetupResponseValueStatus {
     Default,
     Configured,
@@ -272,7 +272,7 @@ impl UiSetupResponseValueStatus {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
 pub struct UiSetupResponseValue {
     pub name: String,
     pub value: String,
@@ -293,7 +293,7 @@ impl UiSetupResponseValue {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
 pub struct UiSetupResponse {
     pub running: bool,
     pub values: Vec<UiSetupResponseValue>,
@@ -322,7 +322,7 @@ impl UiSetupResponse {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
 pub struct UiSetupBroadcast {
     pub running: bool,
     pub values: Vec<UiSetupResponseValue>,
@@ -351,7 +351,7 @@ impl UiSetupBroadcast {
     }
 }
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub struct UiSetupInner {
     pub running: bool,
     pub values: Vec<UiSetupResponseValue>,
@@ -378,11 +378,11 @@ impl From<UiSetupBroadcast> for UiSetupInner {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
 pub struct UiStartOrder {}
 conversation_message!(UiStartOrder, "start");
 
-#[derive(Serialize, Deserialize, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
 pub struct UiStartResponse {
     #[serde(rename = "newProcessId")]
     pub new_process_id: u32,
@@ -391,7 +391,7 @@ pub struct UiStartResponse {
 }
 conversation_message!(UiStartResponse, "start");
 
-#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
 pub enum CrashReason {
     ChildWaitFailure(String),
     NoInformation,
@@ -399,7 +399,7 @@ pub enum CrashReason {
     DaemonCrashed,
 }
 
-#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
 pub struct UiNodeCrashedBroadcast {
     #[serde(rename = "processId")]
     pub process_id: u32,
@@ -408,7 +408,7 @@ pub struct UiNodeCrashedBroadcast {
 }
 fire_and_forget_message!(UiNodeCrashedBroadcast, "crashed");
 
-#[derive(Serialize, Deserialize, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
 pub struct UiRedirect {
     pub port: u16,
     pub opcode: String,
@@ -422,7 +422,7 @@ fire_and_forget_message!(UiRedirect, "redirect");
 // These messages are sent to or by both the Daemon and the Node
 ///////////////////////////////////////////////////////////////////
 
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub struct UiUnmarshalError {
     pub message: String,
     #[serde(rename = "badData")]
@@ -434,7 +434,7 @@ fire_and_forget_message!(UiUnmarshalError, "unmarshalError");
 // These messages are sent to or by the Node only
 ///////////////////////////////////////////////////////////////////
 
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub struct UiChangePasswordRequest {
     #[serde(rename = "oldPasswordOpt")]
     pub old_password_opt: Option<String>,
@@ -443,35 +443,35 @@ pub struct UiChangePasswordRequest {
 }
 conversation_message!(UiChangePasswordRequest, "changePassword");
 
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub struct UiChangePasswordResponse {}
 conversation_message!(UiChangePasswordResponse, "changePassword");
 
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub struct UiCheckPasswordRequest {
     #[serde(rename = "dbPasswordOpt")]
     pub db_password_opt: Option<String>,
 }
 conversation_message!(UiCheckPasswordRequest, "checkPassword");
 
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub struct UiCheckPasswordResponse {
     pub matches: bool,
 }
 conversation_message!(UiCheckPasswordResponse, "checkPassword");
 
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub struct UiConfigurationChangedBroadcast {}
 fire_and_forget_message!(UiConfigurationChangedBroadcast, "configurationChanged");
 
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub struct UiConfigurationRequest {
     #[serde(rename = "dbPasswordOpt")]
     pub db_password_opt: Option<String>,
 }
 conversation_message!(UiConfigurationRequest, "configuration");
 
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub struct UiConfigurationResponse {
     #[serde(rename = "blockchainServiceUrlOpt")]
     pub blockchain_service_url_opt: Option<String>,
@@ -485,12 +485,14 @@ pub struct UiConfigurationResponse {
     pub earning_wallet_address_opt: Option<String>,
     #[serde(rename = "gasPrice")]
     pub gas_price: u64,
+    #[serde(rename = "maxBlockCount")]
+    pub max_block_count_opt: Option<u64>,
     #[serde(rename = "neighborhoodMode")]
     pub neighborhood_mode: String,
     #[serde(rename = "portMappingProtocol")]
     pub port_mapping_protocol_opt: Option<String>,
     #[serde(rename = "startBlock")]
-    pub start_block: u64,
+    pub start_block_opt: Option<u64>,
     #[serde(rename = "consumingWalletPrivateKeyOpt")]
     pub consuming_wallet_private_key_opt: Option<String>,
     // This item is calculated from the private key, not stored in the database, so that
@@ -509,7 +511,7 @@ pub struct UiConfigurationResponse {
 
 conversation_message!(UiConfigurationResponse, "configuration");
 
-#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
 pub struct UiRatePack {
     #[serde(rename = "routingByteRate")]
     pub routing_byte_rate: u64,
@@ -521,7 +523,7 @@ pub struct UiRatePack {
     pub exit_service_rate: u64,
 }
 
-#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
 pub struct UiScanIntervals {
     #[serde(rename = "pendingPayableSec")]
     pub pending_payable_sec: u64,
@@ -531,67 +533,164 @@ pub struct UiScanIntervals {
     pub receivable_sec: u64,
 }
 
-#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
 pub struct UiPaymentThresholds {
     #[serde(rename = "thresholdIntervalSec")]
-    pub threshold_interval_sec: i64,
+    pub threshold_interval_sec: u64,
     #[serde(rename = "debtThresholdGwei")]
-    pub debt_threshold_gwei: i64,
+    pub debt_threshold_gwei: u64,
     #[serde(rename = "paymentGracePeriodSec")]
-    pub payment_grace_period_sec: i64,
+    pub payment_grace_period_sec: u64,
     #[serde(rename = "maturityThresholdSec")]
-    pub maturity_threshold_sec: i64,
+    pub maturity_threshold_sec: u64,
     #[serde(rename = "permanentDebtAllowedGwei")]
-    pub permanent_debt_allowed_gwei: i64,
+    pub permanent_debt_allowed_gwei: u64,
     #[serde(rename = "unbanBelowGwei")]
-    pub unban_below_gwei: i64,
+    pub unban_below_gwei: u64,
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+pub enum UiConnectionStage {
+    NotConnected,
+    ConnectedToNeighbor,
+    RouteFound,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+pub struct UiConnectionChangeBroadcast {
+    pub stage: UiConnectionStage,
+}
+fire_and_forget_message!(UiConnectionChangeBroadcast, "connectionChange");
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+pub struct UiConnectionStatusRequest {}
+
+conversation_message!(UiConnectionStatusRequest, "connectionStatus");
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+pub struct UiConnectionStatusResponse {
+    pub stage: UiConnectionStage,
+}
+
+conversation_message!(UiConnectionStatusResponse, "connectionStatus");
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub struct UiDescriptorRequest {}
 conversation_message!(UiDescriptorRequest, "descriptor");
 
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub struct UiDescriptorResponse {
     #[serde(rename = "nodeDescriptorOpt")]
     pub node_descriptor_opt: Option<String>,
 }
 conversation_message!(UiDescriptorResponse, "descriptor");
 
-#[derive(Serialize, Deserialize, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
+pub struct UiFinancialsRequest {
+    #[serde(rename = "statsRequired")]
+    pub stats_required: bool,
+    #[serde(rename = "topRecordsOpt")]
+    pub top_records_opt: Option<TopRecordsConfig>,
+    #[serde(rename = "customQueriesOpt")]
+    pub custom_queries_opt: Option<CustomQueries>,
+}
+conversation_message!(UiFinancialsRequest, "financials");
+
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone, Copy)]
+pub struct TopRecordsConfig {
+    pub count: u16,
+    #[serde(rename = "orderedBy")]
+    pub ordered_by: TopRecordsOrdering,
+}
+
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone, Copy)]
+pub enum TopRecordsOrdering {
+    Age,
+    Balance,
+}
+
+impl TryFrom<&str> for TopRecordsOrdering {
+    type Error = String;
+
+    fn try_from(value: &str) -> Result<Self, Self::Error> {
+        Ok(match value {
+            "balance" => Self::Balance,
+            "age" => Self::Age,
+            x => return Err(format!("Unrecognized ordering: '{}'", x)),
+        })
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
+pub struct CustomQueries {
+    #[serde(rename = "payableOpt")]
+    pub payable_opt: Option<RangeQuery<u64>>,
+    #[serde(rename = "receivableOpt")]
+    pub receivable_opt: Option<RangeQuery<i64>>,
+}
+
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
+pub struct RangeQuery<T> {
+    #[serde(rename = "minAgeS")]
+    pub min_age_s: u64,
+    #[serde(rename = "maxAgeS")]
+    pub max_age_s: u64,
+    #[serde(rename = "minAmountGwei")]
+    pub min_amount_gwei: T,
+    #[serde(rename = "maxAmountGwei")]
+    pub max_amount_gwei: T,
+}
+
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
+pub struct UiFinancialsResponse {
+    #[serde(rename = "statsOpt")]
+    pub stats_opt: Option<UiFinancialStatistics>,
+    #[serde(rename = "queryResultsOpt")]
+    pub query_results_opt: Option<QueryResults>,
+}
+conversation_message!(UiFinancialsResponse, "financials");
+
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
+pub struct UiFinancialStatistics {
+    #[serde(rename = "totalUnpaidAndPendingPayableGwei")]
+    pub total_unpaid_and_pending_payable_gwei: u64,
+    #[serde(rename = "totalPaidPayableGwei")]
+    pub total_paid_payable_gwei: u64,
+    #[serde(rename = "totalUnpaidReceivableGwei")]
+    pub total_unpaid_receivable_gwei: i64,
+    #[serde(rename = "totalPaidReceivableGwei")]
+    pub total_paid_receivable_gwei: u64,
+}
+
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
+pub struct QueryResults {
+    #[serde(rename = "payableOpt")]
+    pub payable_opt: Option<Vec<UiPayableAccount>>,
+    #[serde(rename = "receivableOpt")]
+    pub receivable_opt: Option<Vec<UiReceivableAccount>>,
+}
+
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
 pub struct UiPayableAccount {
     pub wallet: String,
-    pub age: u64,
-    pub amount: u64,
+    #[serde(rename = "ageS")]
+    pub age_s: u64,
+    #[serde(rename = "balanceGwei")]
+    pub balance_gwei: u64,
     #[serde(rename = "pendingPayableHashOpt")]
     pub pending_payable_hash_opt: Option<String>,
 }
 
-#[derive(Serialize, Deserialize, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
 pub struct UiReceivableAccount {
     pub wallet: String,
-    pub age: u64,
-    pub amount: u64,
+    #[serde(rename = "ageS")]
+    pub age_s: u64,
+    #[serde(rename = "balanceGwei")]
+    pub balance_gwei: i64,
 }
 
-#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
-pub struct UiFinancialsRequest {}
-conversation_message!(UiFinancialsRequest, "financials");
-
-#[derive(Serialize, Deserialize, Debug, PartialEq)]
-pub struct UiFinancialsResponse {
-    #[serde(rename = "totalUnpaidAndPendingPayable")]
-    pub total_unpaid_and_pending_payable: u64,
-    #[serde(rename = "totalPaidPayable")]
-    pub total_paid_payable: u64,
-    #[serde(rename = "totalUnpaidReceivable")]
-    pub total_unpaid_receivable: i64,
-    #[serde(rename = "totalPaidReceivable")]
-    pub total_paid_receivable: u64,
-}
-conversation_message!(UiFinancialsResponse, "financials");
-
-#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
 pub struct UiGenerateSeedSpec {
     #[serde(rename = "mnemonicPhraseSizeOpt")]
     pub mnemonic_phrase_size_opt: Option<usize>,
@@ -601,7 +700,7 @@ pub struct UiGenerateSeedSpec {
     pub mnemonic_passphrase_opt: Option<String>,
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub struct UiGenerateWalletsRequest {
     #[serde(rename = "dbPassword")]
     pub db_password: String,
@@ -614,7 +713,7 @@ pub struct UiGenerateWalletsRequest {
 }
 conversation_message!(UiGenerateWalletsRequest, "generateWallets");
 
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub struct UiGenerateWalletsResponse {
     #[serde(rename = "mnemonicPhraseOpt")]
     pub mnemonic_phrase_opt: Option<Vec<String>>,
@@ -629,7 +728,7 @@ pub struct UiGenerateWalletsResponse {
 }
 conversation_message!(UiGenerateWalletsResponse, "generateWallets");
 
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub struct UiLogBroadcast {
     pub msg: String,
     #[serde(rename = "logLevel")]
@@ -637,18 +736,18 @@ pub struct UiLogBroadcast {
 }
 fire_and_forget_message!(UiLogBroadcast, "logBroadcast");
 
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub enum SerializableLogLevel {
     Error,
     Warn,
     Info,
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub struct UiNewPasswordBroadcast {}
 fire_and_forget_message!(UiNewPasswordBroadcast, "newPassword");
 
-#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
 pub struct UiRecoverSeedSpec {
     #[serde(rename = "mnemonicPhrase")]
     pub mnemonic_phrase: Vec<String>,
@@ -658,7 +757,7 @@ pub struct UiRecoverSeedSpec {
     pub mnemonic_passphrase_opt: Option<String>,
 }
 
-#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
 pub struct UiRecoverWalletsRequest {
     #[serde(rename = "dbPassword")]
     pub db_password: String,
@@ -675,11 +774,11 @@ pub struct UiRecoverWalletsRequest {
 }
 conversation_message!(UiRecoverWalletsRequest, "recoverWallets");
 
-#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
 pub struct UiRecoverWalletsResponse {}
 conversation_message!(UiRecoverWalletsResponse, "recoverWallets");
 
-#[derive(Serialize, Deserialize, Debug, PartialEq, Clone, Copy)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone, Copy, Hash)]
 pub enum ScanType {
     Payables,
     Receivables,
@@ -699,38 +798,38 @@ impl FromStr for ScanType {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
 pub struct UiScanRequest {
     #[serde(rename = "scanType")]
     pub scan_type: ScanType,
 }
 conversation_message!(UiScanRequest, "scan");
 
-#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
 pub struct UiScanResponse {}
 conversation_message!(UiScanResponse, "scan");
 
-#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
 pub struct UiSetConfigurationRequest {
     pub name: String,
     pub value: String,
 }
 conversation_message!(UiSetConfigurationRequest, "setConfiguration");
 
-#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
 pub struct UiSetConfigurationResponse {}
 
 conversation_message!(UiSetConfigurationResponse, "setConfiguration");
 
-#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
 pub struct UiShutdownRequest {}
 conversation_message!(UiShutdownRequest, "shutdown");
 
-#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
 pub struct UiShutdownResponse {}
 conversation_message!(UiShutdownResponse, "shutdown");
 
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub struct UiWalletAddressesRequest {
     #[serde(rename = "dbPassword")]
     pub db_password: String,
@@ -738,7 +837,7 @@ pub struct UiWalletAddressesRequest {
 
 conversation_message!(UiWalletAddressesRequest, "walletAddresses");
 
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub struct UiWalletAddressesResponse {
     #[serde(rename = "consumingWalletAddress")]
     pub consuming_wallet_address: String,
@@ -1090,6 +1189,26 @@ mod tests {
         assert_eq!(
             result,
             Err("Unrecognized ScanType: 'unrecognized'".to_string())
+        );
+    }
+
+    #[test]
+    fn top_records_ordering_from_str() {
+        assert_eq!(
+            TopRecordsOrdering::try_from("balance").unwrap(),
+            TopRecordsOrdering::Balance
+        );
+        assert_eq!(
+            TopRecordsOrdering::try_from("age").unwrap(),
+            TopRecordsOrdering::Age
+        )
+    }
+
+    #[test]
+    fn top_records_ordering_from_str_error() {
+        assert_eq!(
+            TopRecordsOrdering::try_from("upside-down"),
+            Err("Unrecognized ordering: 'upside-down'".to_string())
         );
     }
 }

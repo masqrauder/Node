@@ -9,7 +9,6 @@ use masq_lib::messages::{
 };
 use masq_lib::messages::{UiFinancialsRequest, UiRedirect, UiStartOrder, UiStartResponse};
 use masq_lib::test_utils::ui_connection::UiConnection;
-use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
 use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, node_home_directory};
 use masq_lib::utils::find_free_port;
 use node_lib::daemon::launch_verifier::{VerifierTools, VerifierToolsReal};
@@ -79,7 +78,11 @@ fn initialization_sequence_integration() {
             ("data-directory", Some(&data_directory.to_str().unwrap())),
         ]))
         .unwrap();
-    let financials_request = UiFinancialsRequest {};
+    let financials_request = UiFinancialsRequest {
+        stats_required: true,
+        top_records_opt: None,
+        custom_queries_opt: None,
+    };
     let context_id = 1234;
 
     //<UiFinancialsRequest, UiFinancialsResponse>
@@ -146,15 +149,14 @@ fn wait_for_process_end(process_id: u32) {
 
 #[test]
 fn incomplete_node_descriptor_is_refused_integration() {
-    let test_default_chain_identifier = TEST_DEFAULT_CHAIN.rec().literal_identifier;
+    let chain_identifier = "polygon-mainnet";
     let mut node = utils::MASQNode::start_standard(
         "incomplete_node_descriptor_is_refused_integration",
         Some(
             CommandConfig::new()
                 .pair(
                     "--neighbors",
-                    &format!("masq://{}:12345vhVbmVyGejkYUkmftF09pmGZGKg_PzRNnWQxFw@12.23.34.45:5678,masq://{}:abJ5XvhVbmVyGejkYUkmftF09pmGZGKg_PzRNnWQxFw@:",
-                             test_default_chain_identifier,test_default_chain_identifier)
+                    &format!("masq://{chain_identifier}:12345vhVbmVyGejkYUkmftF09pmGZGKg_PzRNnWQxFw@12.23.34.45:5678,masq://{chain_identifier}:abJ5XvhVbmVyGejkYUkmftF09pmGZGKg_PzRNnWQxFw@:")
                 ),
         ),
         true,
@@ -172,29 +174,30 @@ fn incomplete_node_descriptor_is_refused_integration() {
                 stdout
             );
             let stderr = String::from_utf8_lossy(&output.stderr);
-            assert!(stderr.contains(&format!("neighbors - Neighbors supplied without ip addresses and ports are not valid: 'masq://{}:abJ5XvhVbmVyGejkYUkmftF09pmGZGKg_PzRNnWQxFw@<N/A>:<N/A>",
-                                            test_default_chain_identifier)
+            assert!(stderr.contains(&format!("neighbors - Neighbors supplied without ip addresses and ports are not valid: 'masq://{chain_identifier}:abJ5XvhVbmVyGejkYUkmftF09pmGZGKg_PzRNnWQxFw@<N/A>:<N/A>")
             ), "instead we got: {}",stderr)
         }
     };
 }
 
 #[test]
-fn started_without_explicit_chain_parameter_runs_fine() {
+fn started_without_explicit_chain_parameter_runs_fine_integration() {
     //defaulted chain - chosen on the lack of user specified chain - corresponds with descriptors
     //believed to be for the default chain
     let config = CommandConfig::new()
         .pair("--neighborhood-mode", "standard")
+        .pair("--ip", "1.0.0.1")
+        .pair("--log-level", "trace")
         .pair(
             "--neighbors",
             &format!(
-                "masq://{}:12345vhVbmVyGejkYUkmftF09pmGZGKg/PzRNnWQxFw@12.23.34.45:5678",
+                "masq://{}:UJNoZW5p_PDVqEjpr3b-8jZ_93yPG8i5dOAgE1bhK-A@12.23.34.45:5678",
                 DEFAULT_CHAIN.rec().literal_identifier
             ),
         );
 
     let mut node = MASQNode::start_with_blank_config(
-        "started_without_explicit_chain_parameter_runs_fine",
+        "started_without_explicit_chain_parameter_runs_fine_integration",
         Some(config),
         true,
         true,
@@ -208,13 +211,18 @@ fn started_without_explicit_chain_parameter_runs_fine() {
 
 #[test]
 fn requested_chain_meets_different_db_chain_and_panics_integration() {
+    let chain_literal = DEFAULT_CHAIN.rec().literal_identifier;
     let test_name = "requested_chain_meets_different_db_chain_and_panics_integration";
     {
         //running Node just in order to create a new database which we can do testing on
         let port = find_free_port();
         let mut node = utils::MASQNode::start_standard(
             test_name,
-            Some(CommandConfig::new().pair("--ui-port", &port.to_string())),
+            Some(
+                CommandConfig::new()
+                    .pair("--ui-port", &port.to_string())
+                    .pair("--chain", &chain_literal),
+            ),
             true,
             true,
             false,
@@ -227,6 +235,7 @@ fn requested_chain_meets_different_db_chain_and_panics_integration() {
         node.wait_for_exit();
     }
     let db_dir = node_home_directory("integration", test_name);
+
     let conn = Connection::open_with_flags(
         &db_dir.join(DATABASE_FILE),
         OpenFlags::SQLITE_OPEN_READ_WRITE,
@@ -237,9 +246,61 @@ fn requested_chain_meets_different_db_chain_and_panics_integration() {
         [],
     )
     .unwrap();
+    let mut node = MASQNode::start_standard(
+        test_name,
+        Some(CommandConfig::new().pair("--chain", &chain_literal)),
+        false,
+        true,
+        false,
+        false,
+    );
 
-    let mut node = MASQNode::start_standard(test_name, None, false, true, false, false);
+    let regex_pattern = &format!(
+        r"ERROR: PanicHandler: src(/|\\)actor_system_factory\.rs.*- Database with a wrong chain name detected; expected: {}, was: eth-mainnet",
+        &chain_literal
+    );
+    node.wait_for_log(&regex_pattern, Some(1000));
+}
 
-    let regex_pattern = r"ERROR: PanicHandler: src(/|\\)actor_system_factory\.rs.*- Database with a wrong chain name detected; expected: eth-ropsten, was: eth-mainnet";
-    node.wait_for_log(regex_pattern, Some(1000));
+#[test]
+fn node_creates_log_file_with_heading_integration() {
+    let config = CommandConfig::new()
+        .pair("--neighborhood-mode", "standard")
+        .pair("--ip", "1.0.0.1")
+        .pair(
+            "--neighbors",
+            &format!(
+                "masq://{}:UJNoZW5p_PDVqEjpr3b-8jZ_93yPG8i5dOAgE1bhK-A@12.23.34.45:5678",
+                DEFAULT_CHAIN.rec().literal_identifier
+            ),
+        );
+
+    let mut node = MASQNode::start_standard(
+        "node_creates_log_file_with_heading",
+        Some(config),
+        true,
+        true,
+        false,
+        true,
+    );
+
+    let mut expected_heading_regex = format!(
+        r#"^
+          _____ ______  ________   ________   _______          Node Version: \d+\.\d+\.\d+
+        /   _  | _   /|/  __   /|/  ______/|/   __   /|        Database Schema Version: \d+
+       /  / /__///  / /  /|/  / /  /|_____|/  /|_/  / /        OS: [a-z]+
+      /  / |__|//  / /  __   / /_____   /|/  / '/  / /         client_request_payload::MIGRATIONS \(\d+\.\d+\)
+     /  / /    /  / /  / /  / |_____/  / /  /__/  / /          client_response_payload::MIGRATIONS \(\d+\.\d+\)
+    /__/ /    /__/ /__/ /__/ /________/ /_____   / /           dns_resolve_failure::MIGRATIONS \(\d+\.\d+\)
+    |__|/     |__|/|__|/|__|/|________|/|____/__/ /            gossip::MIGRATIONS \(\d+\.\d+\)
+                                             |__|/             gossip_failure::MIGRATIONS \(\d+\.\d+\)
+                                                               node_record_inner::MIGRATIONS \(\d+\.\d+\)\n
+\d+\-\d+\-\d+ \d+:\d+:\d+\.\d+ Thd\d+:"#,
+        //The last line represents the first log with its timestamp.
+    );
+
+    expected_heading_regex = expected_heading_regex.replace("|", "\\|");
+
+    node.wait_for_log(&expected_heading_regex, Some(5000));
+    //Node is dropped and killed
 }

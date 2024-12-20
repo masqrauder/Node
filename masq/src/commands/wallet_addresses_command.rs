@@ -6,11 +6,9 @@ use crate::commands::commands_common::{
 };
 use clap::{App, Arg, SubCommand};
 use masq_lib::messages::{UiWalletAddressesRequest, UiWalletAddressesResponse};
-use masq_lib::{as_any_impl, short_writeln};
-#[cfg(test)]
-use std::any::Any;
+use masq_lib::{as_any_ref_in_trait_impl, short_writeln};
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct WalletAddressesCommand {
     pub db_password: String,
 }
@@ -33,9 +31,9 @@ impl WalletAddressesCommand {
 const WALLET_ADDRESS_SUBCOMMAND_ABOUT: &str =
     "Provides addresses of consuming and earning wallets.\
      Only valid if the wallets were successfully generated (generate-wallets) or \
-     recovered (recover-wallets)";
+     recovered (recover-wallets).";
 const DB_PASSWORD_ARG_HELP: &str =
-    "The current database password (a password must be set to use this command)";
+    "The current database password (a password must be set to use this command).";
 
 pub fn wallet_addresses_subcommand() -> App<'static, 'static> {
     SubCommand::with_name("wallet-addresses")
@@ -68,7 +66,7 @@ impl Command for WalletAddressesCommand {
         );
         Ok(())
     }
-    as_any_impl!();
+    as_any_ref_in_trait_impl!();
 }
 
 #[cfg(test)]
@@ -87,11 +85,11 @@ mod tests {
             WALLET_ADDRESS_SUBCOMMAND_ABOUT,
             "Provides addresses of consuming and earning wallets.\
              Only valid if the wallets were successfully generated \
-             (generate-wallets) or recovered (recover-wallets)"
+             (generate-wallets) or recovered (recover-wallets)."
         );
         assert_eq!(
             DB_PASSWORD_ARG_HELP,
-            "The current database password (a password must be set to use this command)"
+            "The current database password (a password must be set to use this command)."
         );
     }
 

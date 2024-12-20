@@ -5,21 +5,20 @@ use crate::commands::commands_common::{
     transaction, Command, CommandError, STANDARD_COMMAND_TIMEOUT_MILLIS,
 };
 use clap::{App, Arg, SubCommand};
-use masq_lib::as_any_impl;
+use masq_lib::as_any_ref_in_trait_impl;
 use masq_lib::messages::{UiCheckPasswordRequest, UiCheckPasswordResponse};
 use masq_lib::short_writeln;
-#[cfg(test)]
-use std::any::Any;
+use masq_lib::utils::to_string;
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct CheckPasswordCommand {
     pub db_password_opt: Option<String>,
 }
 
 const CHECK_PASSWORD_ABOUT: &str =
-    "Checks whether the supplied db-password (if any) is the correct password for the Node's database";
+    "Checks whether the supplied db-password (if any) is the correct password for the Node's database.";
 const DB_PASSWORD_ARG_HELP: &str =
-    "Password to check--leave it out if you think the database doesn't have a password yet";
+    "Password to check--leave it out if you think the database doesn't have a password yet.";
 
 pub fn check_password_subcommand() -> App<'static, 'static> {
     SubCommand::with_name("check-password")
@@ -52,7 +51,7 @@ impl Command for CheckPasswordCommand {
         Ok(())
     }
 
-    as_any_impl!();
+    as_any_ref_in_trait_impl!();
 }
 
 impl CheckPasswordCommand {
@@ -62,7 +61,7 @@ impl CheckPasswordCommand {
             Err(e) => return Err(format!("{}", e)),
         };
         Ok(Self {
-            db_password_opt: matches.value_of("db-password").map(|r| r.to_string()),
+            db_password_opt: matches.value_of("db-password").map(to_string),
         })
     }
 }
@@ -81,11 +80,11 @@ mod tests {
     fn constants_have_correct_values() {
         assert_eq!(
             CHECK_PASSWORD_ABOUT,
-            "Checks whether the supplied db-password (if any) is the correct password for the Node's database"
+            "Checks whether the supplied db-password (if any) is the correct password for the Node's database."
         );
         assert_eq!(
             DB_PASSWORD_ARG_HELP,
-            "Password to check--leave it out if you think the database doesn't have a password yet"
+            "Password to check--leave it out if you think the database doesn't have a password yet."
         );
     }
 

@@ -6,26 +6,26 @@ use crate::commands::commands_common::{
     dump_parameter_line, transaction, Command, CommandError, STANDARD_COMMAND_TIMEOUT_MILLIS,
 };
 use clap::{App, Arg, SubCommand};
-use masq_lib::as_any_impl;
+use masq_lib::as_any_ref_in_trait_impl;
 use masq_lib::constants::NODE_NOT_RUNNING_ERROR;
 use masq_lib::messages::{UiConfigurationRequest, UiConfigurationResponse};
 use masq_lib::short_writeln;
-#[cfg(test)]
-use std::any::Any;
+use masq_lib::utils::to_string;
 use std::fmt::{Debug, Display};
 use std::io::Write;
 use std::iter::once;
+use thousands::Separable;
 
 const COLUMN_WIDTH: usize = 33;
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct ConfigurationCommand {
     pub db_password: Option<String>,
 }
 
 const CONFIGURATION_ABOUT: &str = "Displays a running Node's current configuration.";
 const CONFIGURATION_ARG_HELP: &str =
-    "Password of the database from which the configuration will be read";
+    "Password of the database from which the configuration will be read.";
 
 pub fn configuration_subcommand() -> App<'static, 'static> {
     SubCommand::with_name("configuration")
@@ -64,7 +64,7 @@ impl Command for ConfigurationCommand {
         }
     }
 
-    as_any_impl!();
+    as_any_ref_in_trait_impl!();
 }
 
 impl ConfigurationCommand {
@@ -75,7 +75,7 @@ impl ConfigurationCommand {
         };
 
         Ok(ConfigurationCommand {
-            db_password: matches.value_of("db-password").map(|s| s.to_string()),
+            db_password: matches.value_of("db-password").map(to_string),
         })
     }
 
@@ -112,6 +112,14 @@ impl ConfigurationCommand {
         dump_parameter_line(stream, "Gas price:", &configuration.gas_price.to_string());
         dump_parameter_line(
             stream,
+            "Max block count:",
+            &configuration
+                .max_block_count_opt
+                .map(|m| m.separate_with_commas())
+                .unwrap_or_else(|| "[Unlimited]".to_string()),
+        );
+        dump_parameter_line(
+            stream,
             "Neighborhood mode:",
             &configuration.neighborhood_mode,
         );
@@ -123,32 +131,35 @@ impl ConfigurationCommand {
         dump_parameter_line(
             stream,
             "Start block:",
-            &configuration.start_block.to_string(),
+            &configuration
+                .start_block_opt
+                .map(|m| m.separate_with_commas())
+                .unwrap_or_else(|| "[Latest]".to_string()),
         );
         Self::dump_value_list(stream, "Past neighbors:", &configuration.past_neighbors);
         let payment_thresholds = Self::preprocess_combined_parameters({
             let p_c = &configuration.payment_thresholds;
             &[
-                ("Debt threshold:", &p_c.debt_threshold_gwei, "Gwei"),
+                ("Debt threshold:", &p_c.debt_threshold_gwei, "gwei"),
                 ("Maturity threshold:", &p_c.maturity_threshold_sec, "s"),
                 ("Payment grace period:", &p_c.payment_grace_period_sec, "s"),
                 (
                     "Permanent debt allowed:",
                     &p_c.permanent_debt_allowed_gwei,
-                    "Gwei",
+                    "gwei",
                 ),
                 ("Threshold interval:", &p_c.threshold_interval_sec, "s"),
-                ("Unban below:", &p_c.unban_below_gwei, "Gwei"),
+                ("Unban below:", &p_c.unban_below_gwei, "gwei"),
             ]
         });
         Self::dump_value_list(stream, "Payment thresholds:", &payment_thresholds);
         let rate_pack = Self::preprocess_combined_parameters({
             let r_p = &configuration.rate_pack;
             &[
-                ("Routing byte rate:", &r_p.routing_byte_rate, "Gwei"),
-                ("Routing service rate:", &r_p.routing_service_rate, "Gwei"),
-                ("Exit byte rate:", &r_p.exit_byte_rate, "Gwei"),
-                ("Exit service rate:", &r_p.exit_service_rate, "Gwei"),
+                ("Routing byte rate:", &r_p.routing_byte_rate, "wei"),
+                ("Routing service rate:", &r_p.routing_service_rate, "wei"),
+                ("Exit byte rate:", &r_p.exit_byte_rate, "wei"),
+                ("Exit service rate:", &r_p.exit_service_rate, "wei"),
             ]
         });
         Self::dump_value_list(stream, "Rate pack:", &rate_pack);
@@ -186,12 +197,14 @@ impl ConfigurationCommand {
         }
     }
 
-    fn preprocess_combined_parameters(parameters: &[(&str, &dyn Display, &str)]) -> Vec<String> {
+    fn preprocess_combined_parameters(
+        parameters: &[(&str, &dyn DisplaySeparable, &str)],
+    ) -> Vec<String> {
         let iter_of_strings = parameters.iter().map(|(description, value, unit)| {
             format!(
                 "{:width$} {} {}",
                 description,
-                value,
+                value.separate_with_commas(),
                 unit,
                 width = COLUMN_WIDTH
             )
@@ -199,6 +212,10 @@ impl ConfigurationCommand {
         once(String::from("")).chain(iter_of_strings).collect()
     }
 }
+
+trait DisplaySeparable: Display + Separable {}
+impl DisplaySeparable for u64 {}
+impl DisplaySeparable for String {}
 
 #[cfg(test)]
 mod tests {
@@ -223,7 +240,7 @@ mod tests {
         );
         assert_eq!(
             CONFIGURATION_ARG_HELP,
-            "Password of the database from which the configuration will be read"
+            "Password of the database from which the configuration will be read."
         );
     }
 
@@ -299,6 +316,7 @@ mod tests {
             chain_name: "ropsten".to_string(),
             gas_price: 2345,
             neighborhood_mode: "standard".to_string(),
+            max_block_count_opt: None,
             consuming_wallet_private_key_opt: Some("consuming wallet private key".to_string()),
             consuming_wallet_address_opt: Some("consuming wallet address".to_string()),
             earning_wallet_address_opt: Some("earning address".to_string()),
@@ -306,23 +324,23 @@ mod tests {
             past_neighbors: vec!["neighbor 1".to_string(), "neighbor 2".to_string()],
             payment_thresholds: UiPaymentThresholds {
                 threshold_interval_sec: 11111,
-                debt_threshold_gwei: 1212,
+                debt_threshold_gwei: 1201412000,
                 payment_grace_period_sec: 4578,
-                permanent_debt_allowed_gwei: 11222,
+                permanent_debt_allowed_gwei: 112000,
                 maturity_threshold_sec: 3333,
-                unban_below_gwei: 12000,
+                unban_below_gwei: 120000,
             },
             rate_pack: UiRatePack {
-                routing_byte_rate: 8,
-                routing_service_rate: 9,
-                exit_byte_rate: 12,
-                exit_service_rate: 14,
+                routing_byte_rate: 99025000,
+                routing_service_rate: 138000000,
+                exit_byte_rate: 129000000,
+                exit_service_rate: 160000000,
             },
-            start_block: 3456,
+            start_block_opt: None,
             scan_intervals: UiScanIntervals {
-                pending_payable_sec: 150,
-                payable_sec: 155,
-                receivable_sec: 250,
+                pending_payable_sec: 150500,
+                payable_sec: 155000,
+                receivable_sec: 250666,
             },
         };
         let mut context = CommandContextMock::new()
@@ -360,27 +378,28 @@ mod tests {
 |Current schema version:           schema version\n\
 |Earning wallet address:           earning address\n\
 |Gas price:                        2345\n\
+|Max block count:                  [Unlimited]\n\
 |Neighborhood mode:                standard\n\
 |Port mapping protocol:            PCP\n\
-|Start block:                      3456\n\
+|Start block:                      [Latest]\n\
 |Past neighbors:                   neighbor 1\n\
 |                                  neighbor 2\n\
 |Payment thresholds:               \n\
-|                                  Debt threshold:                   1212 Gwei\n\
-|                                  Maturity threshold:               3333 s\n\
-|                                  Payment grace period:             4578 s\n\
-|                                  Permanent debt allowed:           11222 Gwei\n\
-|                                  Threshold interval:               11111 s\n\
-|                                  Unban below:                      12000 Gwei\n\
+|                                  Debt threshold:                   1,201,412,000 gwei\n\
+|                                  Maturity threshold:               3,333 s\n\
+|                                  Payment grace period:             4,578 s\n\
+|                                  Permanent debt allowed:           112,000 gwei\n\
+|                                  Threshold interval:               11,111 s\n\
+|                                  Unban below:                      120,000 gwei\n\
 |Rate pack:                        \n\
-|                                  Routing byte rate:                8 Gwei\n\
-|                                  Routing service rate:             9 Gwei\n\
-|                                  Exit byte rate:                   12 Gwei\n\
-|                                  Exit service rate:                14 Gwei\n\
+|                                  Routing byte rate:                99,025,000 wei\n\
+|                                  Routing service rate:             138,000,000 wei\n\
+|                                  Exit byte rate:                   129,000,000 wei\n\
+|                                  Exit service rate:                160,000,000 wei\n\
 |Scan intervals:                   \n\
-|                                  Pending payable:                  150 s\n\
-|                                  Payable:                          155 s\n\
-|                                  Receivable:                       250 s\n"
+|                                  Pending payable:                  150,500 s\n\
+|                                  Payable:                          155,000 s\n\
+|                                  Receivable:                       250,666 s\n"
             )
             .replace('|', "")
         );
@@ -394,8 +413,9 @@ mod tests {
             blockchain_service_url_opt: Some("https://infura.io/ID".to_string()),
             current_schema_version: "schema version".to_string(),
             clandestine_port: 1234,
-            chain_name: "mumbai".to_string(),
+            chain_name: "amoy".to_string(),
             gas_price: 2345,
+            max_block_count_opt: Some(100_000),
             neighborhood_mode: "zero-hop".to_string(),
             consuming_wallet_address_opt: None,
             consuming_wallet_private_key_opt: None,
@@ -416,7 +436,7 @@ mod tests {
                 exit_byte_rate: 20,
                 exit_service_rate: 30,
             },
-            start_block: 3456,
+            start_block_opt: Some(1234567890u64),
             scan_intervals: UiScanIntervals {
                 pending_payable_sec: 1000,
                 payable_sec: 1000,
@@ -450,32 +470,33 @@ mod tests {
                 "\
 |NAME                              VALUE\n\
 |Blockchain service URL:           https://infura.io/ID\n\
-|Chain:                            mumbai\n\
+|Chain:                            amoy\n\
 |Clandestine port:                 1234\n\
 |Consuming wallet private key:     [?]\n\
 |Current schema version:           schema version\n\
 |Earning wallet address:           earning wallet\n\
 |Gas price:                        2345\n\
+|Max block count:                  100,000\n\
 |Neighborhood mode:                zero-hop\n\
 |Port mapping protocol:            PCP\n\
-|Start block:                      3456\n\
+|Start block:                      1,234,567,890\n\
 |Past neighbors:                   [?]\n\
 |Payment thresholds:               \n\
-|                                  Debt threshold:                   2500 Gwei\n\
+|                                  Debt threshold:                   2,500 gwei\n\
 |                                  Maturity threshold:               500 s\n\
 |                                  Payment grace period:             666 s\n\
-|                                  Permanent debt allowed:           1200 Gwei\n\
-|                                  Threshold interval:               1000 s\n\
-|                                  Unban below:                      1400 Gwei\n\
+|                                  Permanent debt allowed:           1,200 gwei\n\
+|                                  Threshold interval:               1,000 s\n\
+|                                  Unban below:                      1,400 gwei\n\
 |Rate pack:                        \n\
-|                                  Routing byte rate:                15 Gwei\n\
-|                                  Routing service rate:             17 Gwei\n\
-|                                  Exit byte rate:                   20 Gwei\n\
-|                                  Exit service rate:                30 Gwei\n\
+|                                  Routing byte rate:                15 wei\n\
+|                                  Routing service rate:             17 wei\n\
+|                                  Exit byte rate:                   20 wei\n\
+|                                  Exit service rate:                30 wei\n\
 |Scan intervals:                   \n\
-|                                  Pending payable:                  1000 s\n\
-|                                  Payable:                          1000 s\n\
-|                                  Receivable:                       1000 s\n",
+|                                  Pending payable:                  1,000 s\n\
+|                                  Payable:                          1,000 s\n\
+|                                  Receivable:                       1,000 s\n",
             )
             .replace('|', "")
         );

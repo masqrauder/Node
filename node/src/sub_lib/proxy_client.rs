@@ -25,17 +25,18 @@ pub struct ProxyClientConfig {
     pub dns_servers: Vec<SocketAddr>,
     pub exit_service_rate: u64,
     pub exit_byte_rate: u64,
+    pub is_decentralized: bool,
     pub crashable: bool,
 }
 
-#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
 #[allow(non_camel_case_types)]
 pub struct ClientResponsePayload_0v1 {
     pub stream_key: StreamKey,
     pub sequenced_packet: SequencedPacket,
 }
 
-#[derive(Message, Clone, Debug, PartialEq, Deserialize, Serialize)]
+#[derive(Message, Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
 #[allow(non_camel_case_types)]
 pub struct DnsResolveFailure_0v1 {
     pub stream_key: StreamKey,
@@ -65,7 +66,7 @@ impl From<DnsResolveFailure_0v1> for MessageType {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct ProxyClientSubs {
     pub bind: Recipient<BindMessage>,
     pub from_hopper: Recipient<ExpiredCoresPackage<ClientRequestPayload_0v1>>,
@@ -93,7 +94,7 @@ impl ClientResponsePayload_0v1 {
     }
 }
 
-#[derive(PartialEq, Clone, Message, Debug)]
+#[derive(PartialEq, Eq, Clone, Message, Debug)]
 pub struct InboundServerData {
     pub stream_key: StreamKey,
     pub last_data: bool,
@@ -106,13 +107,12 @@ pub struct InboundServerData {
 mod tests {
     use super::*;
     use crate::sub_lib::peer_actors::BindMessage;
-    use crate::test_utils::make_meaningless_stream_key;
     use crate::test_utils::recorder::Recorder;
     use actix::Actor;
 
     #[test]
     fn make_terminating_payload_makes_terminating_payload() {
-        let stream_key: StreamKey = make_meaningless_stream_key();
+        let stream_key: StreamKey = StreamKey::make_meaningless_stream_key();
 
         let payload = ClientResponsePayload_0v1::make_terminating_payload(stream_key);
 

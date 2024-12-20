@@ -6,7 +6,7 @@ use multinode_integration_tests_lib::masq_node::MASQNode;
 use multinode_integration_tests_lib::masq_node_cluster::MASQNodeCluster;
 use multinode_integration_tests_lib::masq_real_node::{
     default_consuming_wallet_info, make_consuming_wallet_info, MASQRealNode,
-    NodeStartupConfigBuilder,
+    NodeStartupConfigBuilder, STANDARD_CLIENT_TIMEOUT_MILLIS,
 };
 use native_tls::HandshakeError;
 use native_tls::TlsConnector;
@@ -57,7 +57,7 @@ fn http_end_to_end_routing_test() {
 
     thread::sleep(Duration::from_millis(500));
 
-    let mut client = last_node.make_client(8080);
+    let mut client = last_node.make_client(8080, 5000);
     client.send_chunk(b"GET / HTTP/1.1\r\nHost: www.example.com\r\n\r\n");
     let response = client.wait_for_chunk();
 
@@ -103,7 +103,7 @@ fn http_end_to_end_routing_test_with_consume_and_originate_only_nodes() {
 
     thread::sleep(Duration::from_millis(1000));
 
-    let mut client = originating_node.make_client(8080);
+    let mut client = originating_node.make_client(8080, STANDARD_CLIENT_TIMEOUT_MILLIS);
     client.send_chunk(b"GET / HTTP/1.1\r\nHost: www.example.com\r\n\r\n");
     let response = client.wait_for_chunk();
 
@@ -233,7 +233,7 @@ fn http_routing_failure_produces_internal_error_response() {
     );
     thread::sleep(Duration::from_millis(1000));
 
-    let mut client = originating_node.make_client(8080);
+    let mut client = originating_node.make_client(8080, STANDARD_CLIENT_TIMEOUT_MILLIS);
 
     client.send_chunk(b"GET / HTTP/1.1\r\nHost: www.example.com\r\n\r\n");
     let response = client.wait_for_chunk();
@@ -265,7 +265,7 @@ fn tls_routing_failure_produces_internal_error_response() {
             .chain(cluster.chain)
             .build(),
     );
-    let mut client = originating_node.make_client(8443);
+    let mut client = originating_node.make_client(8443, STANDARD_CLIENT_TIMEOUT_MILLIS);
     let client_hello = vec![
         0x16, // content_type: Handshake
         0x03, 0x03, // TLS 1.2
@@ -312,11 +312,11 @@ fn multiple_stream_zero_hop_test() {
             .chain(cluster.chain)
             .build(),
     );
-    let mut one_client = zero_hop_node.make_client(8080);
-    let mut another_client = zero_hop_node.make_client(8080);
+    let mut one_client = zero_hop_node.make_client(8080, STANDARD_CLIENT_TIMEOUT_MILLIS);
+    let mut another_client = zero_hop_node.make_client(8080, STANDARD_CLIENT_TIMEOUT_MILLIS);
 
     one_client.send_chunk(b"GET / HTTP/1.1\r\nHost: www.example.com\r\n\r\n");
-    another_client.send_chunk(b"GET / HTTP/1.1\r\nHost: www.fallingfalling.com\r\n\r\n");
+    another_client.send_chunk(b"GET /online/ HTTP/1.1\r\nAccept: text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7\r\nAccept-Language: cs-CZ,cs;q=0.9,en;q=0.8,sk;q=0.7\r\nCache-Control: max-age=0\r\nConnection: keep-alive\r\nHost: whatever.neverssl.com\r\nUpgrade-Insecure-Requests: 1\r\nUser-Agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36\r\n\r\n");
 
     let one_response = one_client.wait_for_chunk();
     let another_response = another_client.wait_for_chunk();
@@ -330,7 +330,7 @@ fn multiple_stream_zero_hop_test() {
     assert_eq!(
         index_of(
             &another_response,
-            &b"FALLING FALLING .COM BY RAFAEL ROZENDAAL"[..],
+            &b"neverssl.com will never use SSL (also known as TLS)"[..],
         )
         .is_some(),
         true,

@@ -1,6 +1,8 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::accountant::payable_dao::PayableAccount;
+use crate::accountant::db_access_objects::payable_dao::PayableAccount;
+use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::blockchain_agent::BlockchainAgent;
+use crate::accountant::scanners::mid_scan_msg_handling::payable_scanner::msgs::QualifiedPayablesMessage;
 use crate::accountant::{RequestTransactionReceipts, ResponseSkeleton, SkeletonOptHolder};
 use crate::blockchain::blockchain_bridge::RetrieveTransactions;
 use crate::sub_lib::peer_actors::BindMessage;
@@ -10,18 +12,22 @@ use masq_lib::blockchains::chains::Chain;
 use masq_lib::ui_gateway::NodeFromUiMessage;
 use std::fmt;
 use std::fmt::{Debug, Formatter};
+use web3::types::U256;
 
-#[derive(Clone, PartialEq, Debug, Default)]
+#[derive(Clone, PartialEq, Eq, Debug, Default)]
 pub struct BlockchainBridgeConfig {
     pub blockchain_service_url_opt: Option<String>,
     pub chain: Chain,
+    // TODO: totally ignored during the setup of the BlockchainBridge actor!
+    // Use it in the body or delete this field
     pub gas_price: u64,
 }
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct BlockchainBridgeSubs {
     pub bind: Recipient<BindMessage>,
-    pub report_accounts_payable: Recipient<ReportAccountsPayable>,
+    pub outbound_payments_instructions: Recipient<OutboundPaymentsInstructions>,
+    pub qualified_payables: Recipient<QualifiedPayablesMessage>,
     pub retrieve_transactions: Recipient<RetrieveTransactions>,
     pub ui_sub: Recipient<NodeFromUiMessage>,
     pub request_transaction_receipts: Recipient<RequestTransactionReceipts>,
@@ -33,41 +39,80 @@ impl Debug for BlockchainBridgeSubs {
     }
 }
 
-#[derive(Clone, PartialEq, Debug, Message)]
-pub struct ReportAccountsPayable {
-    pub accounts: Vec<PayableAccount>,
+#[derive(Message)]
+pub struct OutboundPaymentsInstructions {
+    pub affordable_accounts: Vec<PayableAccount>,
+    pub agent: Box<dyn BlockchainAgent>,
     pub response_skeleton_opt: Option<ResponseSkeleton>,
 }
 
-impl SkeletonOptHolder for ReportAccountsPayable {
+impl OutboundPaymentsInstructions {
+    pub fn new(
+        affordable_accounts: Vec<PayableAccount>,
+        agent: Box<dyn BlockchainAgent>,
+        response_skeleton_opt: Option<ResponseSkeleton>,
+    ) -> Self {
+        Self {
+            affordable_accounts,
+            agent,
+            response_skeleton_opt,
+        }
+    }
+}
+
+impl SkeletonOptHolder for OutboundPaymentsInstructions {
     fn skeleton_opt(&self) -> Option<ResponseSkeleton> {
         self.response_skeleton_opt
     }
 }
 
-#[derive(Clone, PartialEq, Debug, Message)]
-pub struct SetDbPasswordMsg {
-    pub client_id: u64,
-    pub password: String,
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ConsumingWalletBalances {
+    pub transaction_fee_balance_in_minor_units: U256,
+    pub masq_token_balance_in_minor_units: U256,
 }
 
-#[derive(Clone, PartialEq, Debug, Message)]
-pub struct SetGasPriceMsg {
-    pub client_id: u64,
-    pub gas_price: String,
+impl ConsumingWalletBalances {
+    pub fn new(transaction_fee: U256, masq_token: U256) -> Self {
+        Self {
+            transaction_fee_balance_in_minor_units: transaction_fee,
+            masq_token_balance_in_minor_units: masq_token,
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::test_utils::recorder::{make_blockchain_bridge_subs_from, Recorder};
+    use crate::actor_system_factory::SubsFactory;
+    use crate::blockchain::blockchain_bridge::{BlockchainBridge, BlockchainBridgeSubsFactoryReal};
+    use crate::blockchain::test_utils::BlockchainInterfaceMock;
+    use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
+    use crate::test_utils::recorder::{make_blockchain_bridge_subs_from_recorder, Recorder};
     use actix::Actor;
 
     #[test]
     fn blockchain_bridge_subs_debug() {
         let recorder = Recorder::new().start();
 
-        let subject = make_blockchain_bridge_subs_from(&recorder);
+        let subject = make_blockchain_bridge_subs_from_recorder(&recorder);
 
         assert_eq!(format!("{:?}", subject), "BlockchainBridgeSubs");
+    }
+
+    #[test]
+    fn blockchain_bridge_subs_factory_produces_proper_subs() {
+        let subject = BlockchainBridgeSubsFactoryReal {};
+        let blockchain_interface = BlockchainInterfaceMock::default();
+        let persistent_config = PersistentConfigurationMock::new();
+        let accountant = BlockchainBridge::new(
+            Box::new(blockchain_interface),
+            Box::new(persistent_config),
+            false,
+        );
+        let addr = accountant.start();
+
+        let subs = subject.make(&addr);
+
+        assert_eq!(subs, BlockchainBridge::make_subs_from(&addr))
     }
 }

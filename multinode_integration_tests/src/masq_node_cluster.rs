@@ -1,6 +1,9 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 use crate::command::Command;
-use crate::masq_mock_node::MASQMockNode;
+use crate::masq_mock_node::{
+    ImmutableMASQMockNodeStarter, MASQMockNode, MASQMockNodeStarter, MutableMASQMockNode,
+    MutableMASQMockNodeStarter,
+};
 use crate::masq_node::{MASQNode, MASQNodeUtils};
 use crate::masq_real_node::MASQRealNode;
 use crate::masq_real_node::NodeStartupConfig;
@@ -10,7 +13,7 @@ use node_lib::sub_lib::cryptde::PublicKey;
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::env;
-use std::net::{IpAddr, Ipv4Addr};
+use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4, ToSocketAddrs};
 
 pub struct MASQNodeCluster {
     startup_configs: HashMap<(String, usize), NodeStartupConfig>,
@@ -23,6 +26,7 @@ pub struct MASQNodeCluster {
 
 impl MASQNodeCluster {
     pub fn start() -> Result<MASQNodeCluster, String> {
+        MASQNodeCluster::docker_version()?;
         MASQNodeCluster::cleanup()?;
         MASQNodeCluster::create_network()?;
         let host_node_parent_dir = match env::var("HOST_NODE_PARENT_DIR") {
@@ -40,14 +44,6 @@ impl MASQNodeCluster {
             next_index: 1,
             chain: TEST_DEFAULT_MULTINODE_CHAIN,
         })
-    }
-
-    pub fn host_ip_addr() -> IpAddr {
-        if Self::is_in_jenkins() {
-            IpAddr::V4(Ipv4Addr::new(172, 18, 0, 2))
-        } else {
-            IpAddr::V4(Ipv4Addr::new(172, 18, 0, 1))
-        }
     }
 
     pub fn next_index(&self) -> usize {
@@ -76,7 +72,7 @@ impl MASQNodeCluster {
 
     pub fn start_named_real_node(
         &mut self,
-        name: String,
+        name: &str,
         index: usize,
         config: NodeStartupConfig,
     ) -> MASQRealNode {
@@ -84,7 +80,7 @@ impl MASQNodeCluster {
     }
 
     pub fn start_mock_node_with_real_cryptde(&mut self, ports: Vec<u16>) -> MASQMockNode {
-        self.start_mock_node(ports, None)
+        self.start_mock_node_added_to_cluster(ports, None)
     }
 
     pub fn start_mock_node_with_public_key(
@@ -92,30 +88,50 @@ impl MASQNodeCluster {
         ports: Vec<u16>,
         public_key: &PublicKey,
     ) -> MASQMockNode {
-        self.start_mock_node(ports, Some(public_key))
+        self.start_mock_node_added_to_cluster(ports, Some(public_key))
     }
 
-    fn start_mock_node(
+    pub fn start_mutable_mock_node_with_public_key(
+        &mut self,
+        ports: Vec<u16>,
+        public_key: &PublicKey,
+    ) -> MutableMASQMockNode {
+        self.start_mock_node(&MutableMASQMockNodeStarter {}, ports, Some(public_key))
+    }
+
+    fn start_mock_node_added_to_cluster(
         &mut self,
         ports: Vec<u16>,
         public_key_opt: Option<&PublicKey>,
     ) -> MASQMockNode {
+        let mock_node =
+            self.start_mock_node(&ImmutableMASQMockNodeStarter {}, ports, public_key_opt);
+        let name = mock_node.name().to_string();
+        self.mock_nodes.insert(name.clone(), mock_node);
+        self.mock_nodes.get(&name).unwrap().clone()
+    }
+
+    fn start_mock_node<T>(
+        &mut self,
+        mock_node_starter: &dyn MASQMockNodeStarter<T>,
+        ports: Vec<u16>,
+        public_key_opt: Option<&PublicKey>,
+    ) -> T {
         let index = self.next_index;
         self.next_index += 1;
-        let node = match public_key_opt {
-            Some(public_key) => MASQMockNode::start_with_public_key(
-                ports,
-                index,
-                self.host_node_parent_dir.clone(),
-                public_key,
-                self.chain,
-            ),
-            None => {
-                MASQMockNode::start(ports, index, self.host_node_parent_dir.clone(), self.chain)
-            }
-        };
-        let name = node.name().to_string();
-        self.mock_nodes.insert(name.clone(), node);
+        mock_node_starter.start(
+            ports,
+            index,
+            self.host_node_parent_dir.clone(),
+            public_key_opt,
+            self.chain,
+        )
+    }
+
+    pub fn finalize_and_add(&mut self, mutable_mock_node: MutableMASQMockNode) -> MASQMockNode {
+        let mock_node = MASQMockNode::from(mutable_mock_node);
+        let name = mock_node.name().to_string();
+        self.mock_nodes.insert(name.clone(), mock_node);
         self.mock_nodes.get(&name).unwrap().clone()
     }
 
@@ -244,14 +260,7 @@ impl MASQNodeCluster {
     }
 
     fn remove_network_if_running() -> Result<(), String> {
-        let mut command = Command::new("docker", Command::strings(vec!["network", "ls"]));
-        if command.wait_for_exit() != 0 {
-            return Err(format!(
-                "Could not list networks: {}",
-                command.stderr_as_string()
-            ));
-        }
-        let output = command.stdout_as_string();
+        let output = Self::list_network()?;
         if !output.contains("integration_net") {
             return Ok(());
         }
@@ -261,11 +270,39 @@ impl MASQNodeCluster {
         );
         match command.wait_for_exit() {
             0 => Ok(()),
+            _ if command
+                .stderr_as_string()
+                .starts_with("Error: No such network: integration_net") =>
+            {
+                Ok(())
+            }
             _ => Err(format!(
                 "Could not remove network integration_net: {}",
                 command.stderr_as_string()
             )),
         }
+    }
+
+    fn docker_version() -> Result<String, String> {
+        let mut command = Command::new("docker", Command::strings(vec!["--version"]));
+        if command.wait_for_exit() != 0 {
+            return Err(format!(
+                "Could not get Docker version: {}",
+                command.stderr_as_string()
+            ));
+        }
+        Ok(command.stdout_as_string())
+    }
+
+    fn list_network() -> Result<String, String> {
+        let mut command = Command::new("docker", Command::strings(vec!["network", "ls"]));
+        if command.wait_for_exit() != 0 {
+            return Err(format!(
+                "Could not list networks: {}",
+                command.stderr_as_string()
+            ));
+        }
+        Ok(command.stdout_as_string())
     }
 
     fn create_network() -> Result<(), String> {
@@ -298,6 +335,29 @@ impl MASQNodeCluster {
                 "Could not connect subjenkins to integration_net: {}",
                 command.stderr_as_string()
             )),
+        }
+    }
+}
+
+pub struct DockerHostSocketAddr {
+    socket_addrs: Vec<SocketAddr>,
+}
+
+impl ToSocketAddrs for DockerHostSocketAddr {
+    type Iter = std::vec::IntoIter<SocketAddr>;
+
+    fn to_socket_addrs(&self) -> std::io::Result<Self::Iter> {
+        Ok(self.socket_addrs.clone().into_iter())
+    }
+}
+
+impl DockerHostSocketAddr {
+    pub fn new(port: u16) -> Self {
+        Self {
+            socket_addrs: vec![
+                SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::new(172, 18, 0, 2), port)),
+                SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::new(172, 18, 0, 1), port)),
+            ],
         }
     }
 }

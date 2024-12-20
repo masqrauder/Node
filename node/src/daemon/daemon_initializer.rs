@@ -20,8 +20,6 @@ use masq_lib::shared_schema::ConfiguratorError;
 use std::collections::HashMap;
 
 use masq_lib::utils::ExpectValue;
-#[cfg(test)]
-use std::any::Any;
 use std::path::PathBuf;
 use std::str::FromStr;
 
@@ -85,7 +83,7 @@ impl DaemonInitializer for DaemonInitializerReal {
         self.split(system, receiver);
         Ok(())
     }
-    as_any_impl!();
+    as_any_ref_in_trait_impl!();
 }
 
 pub trait Rerunner {
@@ -199,7 +197,7 @@ mod tests {
     use masq_lib::test_utils::environment_guard::EnvironmentGuard;
     use masq_lib::test_utils::fake_stream_holder::FakeStreamHolder;
     use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
-    use masq_lib::utils::{array_of_borrows_to_vec, find_free_port, localhost};
+    use masq_lib::utils::{find_free_port, localhost, slice_of_strs_to_vec_of_strings};
     use std::cell::RefCell;
     use std::iter::FromIterator;
     use std::net::{SocketAddr, TcpListener};
@@ -460,7 +458,7 @@ mod tests {
             Box::new(NodeConfiguratorInitializationReal),
             daemon_clustered_params,
         );
-        let args = &array_of_borrows_to_vec(&[
+        let args = &slice_of_strs_to_vec_of_strings(&[
             "program",
             "--initialization",
             "--ui-port",

@@ -6,22 +6,21 @@ use crate::notifications::crashed_notification::CrashNotifier;
 use crate::terminal::terminal_interface::TerminalWrapper;
 use crossbeam_channel::{unbounded, RecvError, Sender};
 use masq_lib::messages::{
-    FromMessageBody, UiLogBroadcast, UiNewPasswordBroadcast, UiNodeCrashedBroadcast,
-    UiSetupBroadcast, UiUndeliveredFireAndForget,
+    FromMessageBody, UiConnectionChangeBroadcast, UiLogBroadcast, UiNewPasswordBroadcast,
+    UiNodeCrashedBroadcast, UiSetupBroadcast, UiUndeliveredFireAndForget,
 };
 use masq_lib::ui_gateway::MessageBody;
 use masq_lib::utils::ExpectValue;
-use masq_lib::{as_any_dcl, as_any_impl, short_writeln};
+use masq_lib::{as_any_ref_in_trait, as_any_ref_in_trait_impl, short_writeln};
 use std::fmt::Debug;
 use std::io::Write;
 use std::thread;
 
-#[cfg(test)]
-use std::any::Any;
+use crate::notifications::connection_change_notification::ConnectionChangeNotification;
 
 pub trait BroadcastHandle: Send {
     fn send(&self, message_body: MessageBody);
-    as_any_dcl!();
+    as_any_ref_in_trait!();
 }
 
 pub struct BroadcastHandleInactive;
@@ -29,7 +28,7 @@ pub struct BroadcastHandleInactive;
 impl BroadcastHandle for BroadcastHandleInactive {
     //simply dropped (unless we find a better use for such a message)
     fn send(&self, _message_body: MessageBody) {}
-    as_any_impl!();
+    as_any_ref_in_trait_impl!();
 }
 
 pub struct BroadcastHandleGeneric {
@@ -105,6 +104,13 @@ impl BroadcastHandlerReal {
                         stdout,
                         terminal_interface,
                     );
+                } else if let Ok((body, _)) = UiConnectionChangeBroadcast::fmb(message_body.clone())
+                {
+                    ConnectionChangeNotification::handle_broadcast(
+                        body,
+                        stdout,
+                        terminal_interface,
+                    );
                 } else {
                     handle_unrecognized_broadcast(message_body, stderr, terminal_interface)
                 }
@@ -118,7 +124,7 @@ pub trait StreamFactory: Send + Debug {
     fn make(&self) -> (Box<dyn Write>, Box<dyn Write>);
 }
 
-#[derive(Clone, PartialEq, Debug)]
+#[derive(Clone, PartialEq, Eq, Debug)]
 pub struct StreamFactoryReal;
 
 impl StreamFactory for StreamFactoryReal {
@@ -185,8 +191,10 @@ mod tests {
         TerminalPassiveMock, TestStreamFactory,
     };
     use crossbeam_channel::{bounded, unbounded, Receiver};
+    use masq_lib::messages::UiSetupResponseValueStatus::{Configured, Default};
     use masq_lib::messages::{
-        CrashReason, SerializableLogLevel, ToMessageBody, UiLogBroadcast, UiNodeCrashedBroadcast,
+        CrashReason, SerializableLogLevel, ToMessageBody, UiConnectionChangeBroadcast,
+        UiConnectionStage, UiLogBroadcast, UiNodeCrashedBroadcast,
     };
     use masq_lib::messages::{UiSetupBroadcast, UiSetupResponseValue, UiSetupResponseValueStatus};
     use masq_lib::ui_gateway::MessagePath;
@@ -202,7 +210,10 @@ mod tests {
         .start(Box::new(factory));
         let message = UiSetupBroadcast {
             running: true,
-            values: vec![],
+            values: vec![
+                UiSetupResponseValue::new("chain", "eth-ropsten", Configured),
+                UiSetupResponseValue::new("data-directory", "/home/booga", Default),
+            ],
             errors: vec![],
         }
         .tmb(0);
@@ -335,6 +346,39 @@ mod tests {
     }
 
     #[test]
+    fn ui_connection_change_broadcast_is_handled_properly() {
+        let (factory, handle) = TestStreamFactory::new();
+        let (mut stdout, mut stderr) = factory.make();
+        let terminal_interface = TerminalWrapper::new(Arc::new(TerminalPassiveMock::new()));
+
+        let message_body = UiConnectionChangeBroadcast {
+            stage: UiConnectionStage::ConnectedToNeighbor,
+        }
+        .tmb(0);
+
+        let result = BroadcastHandlerReal::handle_message_body(
+            Ok(message_body),
+            &mut stdout,
+            &mut stderr,
+            &terminal_interface,
+        );
+
+        assert_eq!(result, true);
+        let stdout = handle.stdout_so_far();
+        assert_eq!(
+            stdout,
+            "\nConnectedToNeighbor: Established neighborship with an external node.\n\n"
+                .to_string()
+        );
+        assert_eq!(
+            handle.stderr_so_far(),
+            "".to_string(),
+            "stderr: '{}'",
+            stdout
+        );
+    }
+
+    #[test]
     fn unexpected_broadcasts_are_ineffectual_but_dont_kill_the_handler() {
         let (factory, handle) = TestStreamFactory::new();
         let subject = BroadcastHandlerReal::new(Some(TerminalWrapper::new(Arc::new(
@@ -348,7 +392,10 @@ mod tests {
         };
         let good_message = UiSetupBroadcast {
             running: true,
-            values: vec![],
+            values: vec![
+                UiSetupResponseValue::new("chain", "eth-ropsten", Configured),
+                UiSetupResponseValue::new("data-directory", "/home/booga", Default),
+            ],
             errors: vec![],
         }
         .tmb(0);
@@ -426,6 +473,11 @@ mod tests {
                     value: "error".to_string(),
                     status: UiSetupResponseValueStatus::Set,
                 },
+                UiSetupResponseValue {
+                    name: "data-directory".to_string(),
+                    value: "/home/booga".to_string(),
+                    status: UiSetupResponseValueStatus::Default,
+                },
             ],
             errors: vec![],
         };
@@ -436,6 +488,7 @@ mod tests {
 
 NAME                          VALUE                                                            STATUS
 chain                         ropsten                                                          Configured
+data-directory                /home/booga                                                      Default
 ip                            4.4.4.4                                                          Set
 log-level                     error                                                            Set
 neighborhood-mode             standard                                                         Default

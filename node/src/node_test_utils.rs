@@ -15,6 +15,7 @@ use crate::sub_lib::framer::FramedChunk;
 use crate::sub_lib::framer::Framer;
 use crate::sub_lib::stream_handler_pool::DispatcherNodeQueryResponse;
 use crate::sub_lib::stream_handler_pool::TransmitDataMsg;
+use crate::sub_lib::utils::MessageScheduler;
 use crate::test_utils::recorder::Recorder;
 use actix::Actor;
 use actix::Addr;
@@ -105,8 +106,8 @@ impl IdWrapperMock {
 }
 
 pub struct DirsWrapperMock {
-    data_dir_result: Option<PathBuf>,
-    home_dir_result: Option<PathBuf>,
+    pub(crate) data_dir_result: Option<PathBuf>,
+    pub(crate) home_dir_result: Option<PathBuf>,
 }
 
 impl DirsWrapper for DirsWrapperMock {
@@ -210,6 +211,21 @@ where
     }
 }
 
+pub fn check_timestamp(before: SystemTime, timestamp: SystemTime, after: SystemTime) {
+    timestamp.duration_since(before).unwrap_or_else(|_| {
+        panic!(
+            "Timestamp should have been on or after {:?}, but was {:?}",
+            before, timestamp
+        )
+    });
+    after.duration_since(timestamp).unwrap_or_else(|_| {
+        panic!(
+            "Timestamp should have been on or before {:?}, but was {:?}",
+            after, timestamp
+        )
+    });
+}
+
 pub struct NullFramer {
     data: Vec<Vec<u8>>,
 }
@@ -273,17 +289,6 @@ pub fn start_recorder_refcell_opt(recorder: &RefCell<Option<Recorder>>) -> Addr<
     recorder.borrow_mut().take().unwrap().start()
 }
 
-pub fn make_stream_handler_pool_subs_from(
-    stream_handler_pool_opt: Option<Recorder>,
-) -> StreamHandlerPoolSubs {
-    let recorder = match stream_handler_pool_opt {
-        Some(recorder) => recorder,
-        None => Recorder::new(),
-    };
-    let addr = recorder.start();
-    make_stream_handler_pool_subs_from_recorder(&addr)
-}
-
 pub fn make_stream_handler_pool_subs_from_recorder(addr: &Addr<Recorder>) -> StreamHandlerPoolSubs {
     StreamHandlerPoolSubs {
         add_sub: recipient!(addr, AddStreamMsg),
@@ -292,6 +297,10 @@ pub fn make_stream_handler_pool_subs_from_recorder(addr: &Addr<Recorder>) -> Str
         bind: recipient!(addr, PoolBindMessage),
         node_query_response: recipient!(addr, DispatcherNodeQueryResponse),
         node_from_ui_sub: recipient!(addr, NodeFromUiMessage),
+        scheduled_node_query_response_sub: recipient!(
+            addr,
+            MessageScheduler<DispatcherNodeQueryResponse>
+        ),
     }
 }
 

@@ -32,7 +32,7 @@ use std::net::SocketAddr;
 /// verified. We can't use a regular IncipientCoresPackage for this, because it uses a Route full
 /// of PublicKeys destined to be looked up in the database by the Dispatcher.
 /// This struct can be used only for single-hop traffic.
-#[derive(Clone, Debug, PartialEq, Message)]
+#[derive(Clone, Debug, PartialEq, Eq, Message)]
 pub struct NoLookupIncipientCoresPackage {
     pub public_key: PublicKey,
     pub node_addr: NodeAddr,
@@ -59,19 +59,41 @@ impl NoLookupIncipientCoresPackage {
 }
 
 /// New CORES package about to be sent to the Hopper and thence put on the MASQ Network
-#[derive(Clone, Debug, PartialEq, Message)]
+#[derive(Clone, Debug, PartialEq, Eq, Message)]
 pub struct IncipientCoresPackage {
     pub route: Route,
     pub payload: CryptData,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum MessageType {
     ClientRequest(VersionedData<ClientRequestPayload_0v1>),
     ClientResponse(VersionedData<ClientResponsePayload_0v1>),
     Gossip(VersionedData<Gossip_0v1>),
     GossipFailure(VersionedData<GossipFailure_0v1>),
     DnsResolveFailed(VersionedData<DnsResolveFailure_0v1>),
+}
+
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum MessageTypeLite {
+    ClientRequest,
+    ClientResponse,
+    Gossip,
+    GossipFailure,
+    DnsResolveFailed,
+}
+
+#[allow(clippy::from_over_into)]
+impl Into<MessageTypeLite> for MessageType {
+    fn into(self) -> MessageTypeLite {
+        match self {
+            MessageType::ClientRequest(_) => MessageTypeLite::ClientRequest,
+            MessageType::ClientResponse(_) => MessageTypeLite::ClientResponse,
+            MessageType::Gossip(_) => MessageTypeLite::Gossip,
+            MessageType::GossipFailure(_) => MessageTypeLite::GossipFailure,
+            MessageType::DnsResolveFailed(_) => MessageTypeLite::DnsResolveFailed,
+        }
+    }
 }
 
 impl IncipientCoresPackage {
@@ -94,7 +116,7 @@ impl IncipientCoresPackage {
 }
 
 /// CORES package that has traversed the MASQ Network and is arriving at its destination
-#[derive(Clone, Debug, PartialEq, Message)]
+#[derive(Clone, Debug, PartialEq, Eq, Message)]
 pub struct ExpiredCoresPackage<T> {
     pub immediate_neighbor: SocketAddr,
     pub paying_wallet: Option<Wallet>,
@@ -130,7 +152,7 @@ pub struct HopperConfig {
     pub crashable: bool,
 }
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct HopperSubs {
     pub bind: Recipient<BindMessage>,
     pub from_hopper_client: Recipient<IncipientCoresPackage>,
@@ -292,5 +314,28 @@ mod tests {
         assert_eq!(subject.remaining_route, route);
         assert_eq!(subject.payload, payload);
         assert_eq!(subject.payload_len, 42);
+    }
+
+    #[test]
+    fn message_type_can_be_converted_in_to_message_type_lite() {
+        let dns_resolve_failed =
+            MessageType::DnsResolveFailed(VersionedData::test_new(dv!(0, 0), vec![]));
+        let client_response =
+            MessageType::ClientResponse(VersionedData::test_new(dv!(0, 0), vec![]));
+        let client_request = MessageType::ClientRequest(VersionedData::test_new(dv!(0, 0), vec![]));
+        let gossip_failure = MessageType::GossipFailure(VersionedData::test_new(dv!(0, 0), vec![]));
+        let gossip = MessageType::Gossip(VersionedData::test_new(dv!(0, 0), vec![]));
+
+        let dns_resolve_failed_result: MessageTypeLite = dns_resolve_failed.into();
+        let client_response_result: MessageTypeLite = client_response.into();
+        let client_request_result: MessageTypeLite = client_request.into();
+        let gossip_failure_result: MessageTypeLite = gossip_failure.into();
+        let gossip_result: MessageTypeLite = gossip.into();
+
+        assert_eq!(dns_resolve_failed_result, MessageTypeLite::DnsResolveFailed);
+        assert_eq!(client_response_result, MessageTypeLite::ClientResponse);
+        assert_eq!(client_request_result, MessageTypeLite::ClientRequest);
+        assert_eq!(gossip_failure_result, MessageTypeLite::GossipFailure);
+        assert_eq!(gossip_result, MessageTypeLite::Gossip);
     }
 }

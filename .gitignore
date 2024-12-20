@@ -1,8 +1,9 @@
-# Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
+# Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 /target/
 /results/
 **/*.rs.bk
 .idea/azure/
+.idea/inspectionProfiles/Project_Default.xml
 
 ### Node
 node_modules
@@ -64,6 +65,7 @@ Temporary Items
 **/.idea/**/dataSources.ids
 **/.idea/**/dataSources.xml
 **/.idea/**/dataSources.local.xml
+**/.idea/**/dbnavigator.xml
 **/.idea/**/sqlDataSources.xml
 **/.idea/**/dynamic.xml
 **/.idea/**/uiDesigner.xml
@@ -135,3 +137,6 @@ node.log
 lnk*.tmp
 /*/target/
 node_ui/static/binaries/
+
+# VSCode
+.vscode

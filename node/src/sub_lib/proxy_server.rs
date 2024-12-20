@@ -8,8 +8,8 @@ use crate::sub_lib::neighborhood::{ExpectedService, RouteQueryResponse};
 use crate::sub_lib::peer_actors::BindMessage;
 use crate::sub_lib::proxy_client::{ClientResponsePayload_0v1, DnsResolveFailure_0v1};
 use crate::sub_lib::sequence_buffer::SequencedPacket;
-use crate::sub_lib::set_consuming_wallet_message::SetConsumingWalletMessage;
 use crate::sub_lib::stream_key::StreamKey;
+use crate::sub_lib::utils::MessageScheduler;
 use crate::sub_lib::versioned_data::VersionedData;
 use actix::Message;
 use actix::Recipient;
@@ -29,7 +29,7 @@ pub enum ProxyProtocol {
 // TODO: Based on the way it's used, this struct should comprise two elements: one, a nested
 // struct that contains all the small, quickly-cloned things, and the other the big,
 // expensively-cloned SequencedPacket.
-#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
 #[allow(non_camel_case_types)]
 pub struct ClientRequestPayload_0v1 {
     pub stream_key: StreamKey,
@@ -60,16 +60,21 @@ pub struct AddReturnRouteMessage {
     pub return_route_id: u32,
     pub expected_services: Vec<ExpectedService>,
     pub protocol: ProxyProtocol,
-    pub server_name: Option<String>,
+    pub hostname_opt: Option<String>,
 }
 
-#[derive(Message, Debug, PartialEq)]
-pub struct AddRouteMessage {
+#[derive(Message, Debug, PartialEq, Eq)]
+pub struct AddRouteResultMessage {
     pub stream_key: StreamKey,
-    pub route: RouteQueryResponse,
+    pub result: Result<RouteQueryResponse, String>,
 }
 
-#[derive(Clone)]
+#[derive(Message, Debug, PartialEq, Eq)]
+pub struct StreamKeyPurge {
+    pub stream_key: StreamKey,
+}
+
+#[derive(Clone, PartialEq, Eq)]
 pub struct ProxyServerSubs {
     // ProxyServer will handle these messages:
     pub bind: Recipient<BindMessage>,
@@ -77,10 +82,10 @@ pub struct ProxyServerSubs {
     pub from_hopper: Recipient<ExpiredCoresPackage<ClientResponsePayload_0v1>>,
     pub dns_failure_from_hopper: Recipient<ExpiredCoresPackage<DnsResolveFailure_0v1>>,
     pub add_return_route: Recipient<AddReturnRouteMessage>,
-    pub add_route: Recipient<AddRouteMessage>,
     pub stream_shutdown_sub: Recipient<StreamShutdownMsg>,
-    pub set_consuming_wallet_sub: Recipient<SetConsumingWalletMessage>,
     pub node_from_ui: Recipient<NodeFromUiMessage>,
+    pub route_result_sub: Recipient<AddRouteResultMessage>,
+    pub schedule_stream_key_purge: Recipient<MessageScheduler<StreamKeyPurge>>,
 }
 
 impl Debug for ProxyServerSubs {
@@ -97,11 +102,6 @@ mod tests {
     use actix::Actor;
 
     #[test]
-    fn constants_have_correct_values() {
-        assert_eq!(DEFAULT_MINIMUM_HOP_COUNT, 3);
-    }
-
-    #[test]
     fn proxy_server_subs_debug() {
         let recorder = Recorder::new().start();
 
@@ -114,10 +114,10 @@ mod tests {
                 ExpiredCoresPackage<DnsResolveFailure_0v1>
             ),
             add_return_route: recipient!(recorder, AddReturnRouteMessage),
-            add_route: recipient!(recorder, AddRouteMessage),
             stream_shutdown_sub: recipient!(recorder, StreamShutdownMsg),
-            set_consuming_wallet_sub: recipient!(recorder, SetConsumingWalletMessage),
             node_from_ui: recipient!(recorder, NodeFromUiMessage),
+            route_result_sub: recipient!(recorder, AddRouteResultMessage),
+            schedule_stream_key_purge: recipient!(recorder, MessageScheduler<StreamKeyPurge>),
         };
 
         assert_eq!(format!("{:?}", subject), "ProxyServerSubs");

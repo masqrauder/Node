@@ -1,7 +1,6 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::shared_schema::{ConfiguratorError, ParamError};
-use crate::utils::WrapResult;
 #[allow(unused_imports)]
 use clap::{value_t, values_t};
 use clap::{App, ArgMatches};
@@ -17,7 +16,7 @@ use toml::Value;
 #[macro_export]
 macro_rules! value_m {
     ($m:ident, $v:expr, $t:ty) => {{
-        let matches = make_arg_matches_accesible(&$m);
+        let matches = $m.arg_matches_ref();
         match value_t!(matches, $v, $t) {
             Ok(v) => Some(v),
             Err(_) => None,
@@ -29,7 +28,7 @@ macro_rules! value_m {
 macro_rules! value_user_specified_m {
     ($m:ident, $v:expr, $t:ty) => {{
         let user_specified = $m.occurrences_of($v) > 0;
-        let matches = make_arg_matches_accesible(&$m);
+        let matches = $m.arg_matches_ref();
         match value_t!(matches, $v, $t) {
             Ok(v) => (Some(v), user_specified),
             Err(_) => (None, user_specified),
@@ -40,7 +39,7 @@ macro_rules! value_user_specified_m {
 #[macro_export]
 macro_rules! values_m {
     ($m:ident, $v:expr, $t:ty) => {{
-        let matches = make_arg_matches_accesible(&$m);
+        let matches = $m.arg_matches_ref();
         match values_t!(matches, $v, $t) {
             Ok(vs) => vs,
             Err(_) => vec![],
@@ -48,6 +47,7 @@ macro_rules! values_m {
     }};
 }
 
+#[derive(Debug)]
 pub struct MultiConfig<'a> {
     arg_matches: ArgMatches<'a>,
 }
@@ -63,9 +63,10 @@ impl<'a> MultiConfig<'a> {
     ) -> Result<MultiConfig<'a>, ConfiguratorError> {
         let initial: Box<dyn VirtualCommandLine> =
             Box::new(CommandLineVcl::new(vec![String::new()]));
-        let merged: Box<dyn VirtualCommandLine> = vcls
+        let merged = vcls
             .into_iter()
             .fold(initial, |so_far, vcl| merge(so_far, vcl));
+
         let arg_matches = match schema
             .clone()
             .get_matches_from_safe(merged.args().into_iter())
@@ -78,16 +79,43 @@ impl<'a> MultiConfig<'a> {
                 _ => return Err(Self::make_configurator_error(e)),
             },
         };
-        MultiConfig { arg_matches }.wrap_to_ok()
+
+        Ok(MultiConfig { arg_matches })
+    }
+
+    fn check_for_invalid_value_err(
+        error_msg: &str,
+        pattern: &str,
+        index_of_name: usize,
+        index_of_value: usize,
+    ) -> Option<ConfiguratorError> {
+        let regex = Regex::new(pattern).expect("Bad regex");
+
+        match regex.captures(error_msg) {
+            Some(captures) => {
+                let name = &captures[index_of_name];
+                let message = format!("Invalid value: {}", &captures[index_of_value]);
+
+                Some(ConfiguratorError::required(name, &message))
+            }
+            None => None,
+        }
     }
 
     pub fn make_configurator_error(e: clap::Error) -> ConfiguratorError {
-        let invalid_value_regex =
-            Regex::new("Invalid value for.*'--(.*?) <.*? (.*)$").expect("Bad regex");
-        if let Some(captures) = invalid_value_regex.captures(&e.message) {
-            let name = &captures[1];
-            let message = format!("Invalid value: {}", &captures[2]);
-            return ConfiguratorError::required(name, &message);
+        let invalid_value_patterns = vec![
+            ("Invalid value for '--(.*?) <.*>': (.*)$", 1, 2),
+            ("error: (.*) isn't a valid value for '--(.*?) <.*>'", 2, 1),
+        ];
+        for (pattern, index_of_name, index_of_value) in invalid_value_patterns {
+            if let Some(invalid_value_err) = MultiConfig::check_for_invalid_value_err(
+                &e.message,
+                pattern,
+                index_of_name,
+                index_of_value,
+            ) {
+                return invalid_value_err;
+            };
         }
         if e.message
             .contains("The following required arguments were not provided:")
@@ -116,10 +144,10 @@ impl<'a> MultiConfig<'a> {
     pub fn occurrences_of(&self, parameter: &str) -> u64 {
         self.arg_matches.occurrences_of(parameter)
     }
-}
 
-pub fn make_arg_matches_accesible<'a>(multi_confuig: &'a MultiConfig) -> &'a ArgMatches<'a> {
-    &multi_confuig.arg_matches
+    pub fn arg_matches_ref(&self) -> &ArgMatches {
+        &self.arg_matches
+    }
 }
 
 pub trait VclArg: Debug {
@@ -139,7 +167,7 @@ fn vcl_args_to_vcl_args(vcl_args: &[Box<dyn VclArg>]) -> Vec<&dyn VclArg> {
     vcl_args.iter().map(|box_ref| box_ref.as_ref()).collect()
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct NameValueVclArg {
     name: String,
     value: String,
@@ -168,7 +196,7 @@ impl NameValueVclArg {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct NameOnlyVclArg {
     name: String,
 }
@@ -198,6 +226,9 @@ impl NameOnlyVclArg {
 pub trait VirtualCommandLine {
     fn vcl_args(&self) -> Vec<&dyn VclArg>;
     fn args(&self) -> Vec<String>;
+    fn is_computed(&self) -> bool {
+        false
+    }
 }
 
 impl Debug for dyn VirtualCommandLine {
@@ -321,8 +352,17 @@ impl EnvironmentVcl {
     }
 }
 
+#[derive(Debug)]
 pub struct ConfigFileVcl {
     vcl_args: Vec<Box<dyn VclArg>>,
+}
+
+impl Clone for ConfigFileVcl {
+    fn clone(&self) -> Self {
+        ConfigFileVcl {
+            vcl_args: self.vcl_args.iter().map(|arg| arg.dup()).collect(),
+        }
+    }
 }
 
 impl VirtualCommandLine for ConfigFileVcl {
@@ -349,8 +389,8 @@ impl Display for ConfigFileVclError {
         match self {
             ConfigFileVclError::OpenError(path, _) => write!(
                 fmt,
-                "Couldn't open configuration file {:?}. Are you sure it exists?",
-                path
+                "Couldn't open configuration file \"{}\". Are you sure it exists?",
+                path.to_string_lossy()
             ),
             ConfigFileVclError::CorruptUtf8(path) => write!(
                 fmt,
@@ -475,6 +515,7 @@ pub mod tests {
     use super::*;
     use crate::test_utils::environment_guard::EnvironmentGuard;
     use crate::test_utils::utils::ensure_node_home_directory_exists;
+    use crate::utils::to_string;
     use clap::Arg;
     use std::fs::File;
     use std::io::Write;
@@ -903,7 +944,7 @@ pub mod tests {
             "--other_takes_no_value",
         ]
         .into_iter()
-        .map(|s| s.to_string())
+        .map(to_string)
         .collect();
 
         let subject = CommandLineVcl::new(command_line.clone());
@@ -926,10 +967,7 @@ pub mod tests {
     #[test]
     #[should_panic(expected = "Expected option beginning with '--', not value")]
     fn command_line_vcl_panics_when_given_value_without_name() {
-        let command_line: Vec<String> = vec!["", "value"]
-            .into_iter()
-            .map(|s| s.to_string())
-            .collect();
+        let command_line: Vec<String> = vec!["", "value"].into_iter().map(to_string).collect();
 
         CommandLineVcl::new(command_line.clone());
     }
@@ -1101,6 +1139,7 @@ pub mod tests {
         }
 
         let result = ConfigFileVcl::new(&file_path, true).err().unwrap();
+
         assert_contains(
             &result.to_string(),
             "doesn't make sense: parameter 'array' must have a scalar value, not an array value.",

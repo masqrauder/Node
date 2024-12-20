@@ -6,6 +6,7 @@ use masq_lib::constants::{
     CENTRAL_DELIMITER, CHAIN_IDENTIFIER_DELIMITER, CURRENT_LOGFILE_NAME, HIGHEST_USABLE_PORT,
     MASQ_URL_PREFIX,
 };
+use masq_lib::utils::to_string;
 use node_lib::sub_lib::cryptde::{CryptDE, PublicKey};
 use node_lib::sub_lib::cryptde_null::CryptDENull;
 use node_lib::sub_lib::neighborhood::{NodeDescriptor, RatePack};
@@ -26,7 +27,7 @@ use std::thread;
 use std::time::Duration;
 use std::time::Instant;
 
-#[derive(PartialEq, Clone, Debug)]
+#[derive(PartialEq, Eq, Clone, Debug)]
 pub struct NodeReference {
     pub public_key: PublicKey,
     pub node_addr_opt: Option<NodeAddr>,
@@ -81,7 +82,7 @@ impl fmt::Display for NodeReference {
             Some(node_addr) => node_addr
                 .ports()
                 .iter()
-                .map(|port| port.to_string())
+                .map(to_string)
                 .collect::<Vec<String>>()
                 .join(NodeAddr::PORTS_SEPARATOR),
             None => String::new(),
@@ -179,6 +180,7 @@ pub enum PortSelector {
 }
 
 pub trait MASQNode: Any {
+    // This is the name of the Docker container on which this MASQNode will run.
     fn name(&self) -> &str;
     // This is the NodeReference stated by the Node in the console. Its IP address won't be accurate if it's a zero-hop Node.
     fn node_reference(&self) -> NodeReference;
@@ -190,6 +192,8 @@ pub trait MASQNode: Any {
     fn signing_cryptde(&self) -> Option<&dyn CryptDE>;
     // A reference to this MASQNode's main public key.
     fn main_public_key(&self) -> &PublicKey;
+    // A reference to this MASQNode's alias public key.
+    fn alias_public_key(&self) -> &PublicKey;
     // This is the IP address of the container in which the Node is running.
     fn ip_address(&self) -> IpAddr;
     fn port_list(&self) -> Vec<u16>;
@@ -212,8 +216,10 @@ pub struct MASQNodeUtils {}
 
 impl MASQNodeUtils {
     pub fn clean_up_existing_container(name: &str) {
-        let mut command = Command::new("docker", Command::strings(vec!["rm", name]));
-        command.wait_for_exit(); // success, failure, don't care
+        let mut command = Command::new("docker", Command::strings(vec!["stop", "-t", "0", name]));
+        command.stdout_and_stderr(); // success, failure, don't care
+        let mut command = Command::new("docker", Command::strings(vec!["rm", "-f", name]));
+        command.stdout_and_stderr(); // success, failure, don't care
     }
 
     pub fn find_project_root() -> String {

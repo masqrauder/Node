@@ -3,20 +3,16 @@
 pub mod utils;
 
 use crate::utils::MASQNode;
+use masq_lib::constants::DEFAULT_CHAIN;
 use masq_lib::messages::SerializableLogLevel::Warn;
 use masq_lib::messages::{
-    UiChangePasswordRequest, UiFinancialsRequest, UiFinancialsResponse, UiLogBroadcast, UiRedirect,
-    UiSetupRequest, UiSetupResponse, UiShutdownRequest, UiStartOrder, UiStartResponse,
+    UiChangePasswordRequest, UiCheckPasswordRequest, UiCheckPasswordResponse, UiLogBroadcast,
+    UiRedirect, UiSetupRequest, UiSetupResponse, UiShutdownRequest, UiStartOrder, UiStartResponse,
     UiWalletAddressesRequest, NODE_UI_PROTOCOL,
 };
 use masq_lib::test_utils::ui_connection::UiConnection;
 use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
-use masq_lib::utils::find_free_port;
-use node_lib::accountant::payable_dao::{PayableDao, PayableDaoReal};
-use node_lib::accountant::receivable_dao::{ReceivableDao, ReceivableDaoReal};
-use node_lib::database::db_initializer::{DbInitializer, DbInitializerReal};
-use node_lib::database::db_migrations::MigratorConfig;
-use node_lib::test_utils::make_wallet;
+use masq_lib::utils::{add_chain_specific_directory, find_free_port};
 use utils::CommandConfig;
 
 #[test]
@@ -27,17 +23,6 @@ fn ui_requests_something_and_gets_corresponding_response() {
         "ui_gateway_test",
         "ui_requests_something_and_gets_corresponding_response",
     );
-    let make_conn = || {
-        DbInitializerReal::default()
-            .initialize(&home_dir, true, MigratorConfig::panic_on_migration())
-            .unwrap()
-    };
-    PayableDaoReal::new(make_conn())
-        .more_money_payable(&make_wallet("abc"), 45678)
-        .unwrap();
-    ReceivableDaoReal::new(make_conn())
-        .more_money_receivable(&make_wallet("xyz"), 65432)
-        .unwrap();
     let mut node = utils::MASQNode::start_standard(
         "ui_requests_something_and_gets_corresponding_response",
         Some(
@@ -48,27 +33,21 @@ fn ui_requests_something_and_gets_corresponding_response() {
                     home_dir.into_os_string().to_str().unwrap(),
                 ),
         ),
-        false,
+        true,
         true,
         false,
         true,
     );
     node.wait_for_log("UIGateway bound", Some(5000));
-    let financials_request = UiFinancialsRequest {};
+    let check_password_request = UiCheckPasswordRequest {
+        db_password_opt: None,
+    };
     let mut client = UiConnection::new(port, NODE_UI_PROTOCOL);
 
-    client.send(financials_request);
-    let response: UiFinancialsResponse = client.skip_until_received().unwrap();
+    client.send(check_password_request);
+    let response: UiCheckPasswordResponse = client.skip_until_received().unwrap();
 
-    assert_eq!(
-        response,
-        UiFinancialsResponse {
-            total_unpaid_and_pending_payable: 45678,
-            total_paid_payable: 0,
-            total_unpaid_receivable: 65432,
-            total_paid_receivable: 0
-        }
-    );
+    assert_eq!(response, UiCheckPasswordResponse { matches: true });
     client.send(UiShutdownRequest {});
     node.wait_for_exit();
 }
@@ -79,7 +58,11 @@ fn log_broadcasts_are_correctly_received_integration() {
     let port = find_free_port();
     let mut node = utils::MASQNode::start_standard(
         "log_broadcasts_are_correctly_received",
-        Some(CommandConfig::new().pair("--ui-port", &port.to_string())),
+        Some(
+            CommandConfig::new()
+                .pair("--ui-port", &port.to_string())
+                .pair("--chain", "polygon-mainnet"),
+        ),
         true,
         true,
         false,
@@ -119,6 +102,7 @@ fn daemon_does_not_allow_node_to_keep_his_client_alive_integration() {
         "ui_gateway_test",
         "daemon_does_not_allow_node_to_keep_his_client_alive_integration",
     );
+    let expected_chain_data_dir = add_chain_specific_directory(DEFAULT_CHAIN, &data_directory);
     let daemon_port = find_free_port();
     let mut daemon = utils::MASQNode::start_daemon(
         "daemon_does_not_allow_node_to_keep_his_client_alive_integration",
@@ -133,7 +117,7 @@ fn daemon_does_not_allow_node_to_keep_his_client_alive_integration() {
     let _: UiSetupResponse = daemon_client
         .transact(UiSetupRequest::new(vec![
             ("ip", Some("100.80.1.1")),
-            ("chain", Some("eth-mainnet")),
+            ("chain", Some("polygon-mainnet")),
             ("neighborhood-mode", Some("standard")),
             ("log-level", Some("trace")),
             ("data-directory", Some(&data_directory.to_str().unwrap())),
@@ -143,11 +127,10 @@ fn daemon_does_not_allow_node_to_keep_his_client_alive_integration() {
     let _: UiStartResponse = daemon_client.transact(UiStartOrder {}).unwrap();
 
     let connected_and_disconnected_assertion =
-        |how_many_occurrences_we_look_for: usize, pattern_in_log: fn(port_spec: &str) -> String| {
+        |how_many_occurrences_we_look_for: usize,
+         make_regex_searching_for_port_in_logs: fn(port_spec: &str) -> String| {
             let port_number_regex_str = r"UI connected at 127\.0\.0\.1:([\d]*)";
-            //TODO fix this when GH-580 is being played
-            // let log_file_directory = data_directory.join("eth-mainnet");
-            let log_file_directory = data_directory.clone();
+            let log_file_directory = expected_chain_data_dir.clone();
             let all_uis_connected_so_far = MASQNode::capture_pieces_of_log_at_directory(
                 port_number_regex_str,
                 &log_file_directory.as_path(),
@@ -158,7 +141,7 @@ fn daemon_does_not_allow_node_to_keep_his_client_alive_integration() {
             let searched_port_of_ui =
                 all_uis_connected_so_far[how_many_occurrences_we_look_for - 1][1].as_str();
             MASQNode::wait_for_match_at_directory(
-                pattern_in_log(searched_port_of_ui).as_str(),
+                make_regex_searching_for_port_in_logs(searched_port_of_ui).as_str(),
                 log_file_directory.as_path(),
                 Some(1500),
             );
@@ -191,7 +174,11 @@ fn cleanup_after_deceased_clients_integration() {
     let port = find_free_port();
     let mut node = utils::MASQNode::start_standard(
         "cleanup_after_deceased_clients_integration",
-        Some(CommandConfig::new().pair("--ui-port", &port.to_string())),
+        Some(
+            CommandConfig::new()
+                .pair("--chain", DEFAULT_CHAIN.rec().literal_identifier)
+                .pair("--ui-port", &port.to_string()),
+        ),
         true,
         true,
         false,

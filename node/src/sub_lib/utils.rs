@@ -1,5 +1,6 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
+use crate::database::db_initializer::{InitializationError, DATABASE_FILE};
 use actix::{Actor, AsyncContext, Context, Handler, Message, SpawnHandle};
 use clap::App;
 use masq_lib::logger::Logger;
@@ -8,10 +9,9 @@ use masq_lib::multi_config::{MultiConfig, VirtualCommandLine};
 use masq_lib::shared_schema::ConfiguratorError;
 use masq_lib::ui_gateway::NodeFromUiMessage;
 use masq_lib::utils::type_name_of;
-#[cfg(test)]
-use std::any::Any;
 use std::io::ErrorKind;
 use std::marker::PhantomData;
+use std::path::Path;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 static DEAD_STREAM_ERRORS: [ErrorKind; 5] = [
@@ -149,22 +149,19 @@ where
         interval: Duration,
         ctx: &mut Context<A>,
     ) -> Box<dyn NLSpawnHandleHolder>;
-    as_any_dcl!();
+    as_any_ref_in_trait!();
 }
 
+#[derive(Default)]
 pub struct NotifyLaterHandleReal<M> {
     phantom: PhantomData<M>,
 }
 
-impl<M, A> Default for Box<dyn NotifyLaterHandle<M, A>>
-where
-    M: Message + 'static,
-    A: Actor<Context = Context<A>> + Handler<M>,
-{
-    fn default() -> Self {
-        Box::new(NotifyLaterHandleReal {
+impl<T> NotifyLaterHandleReal<T> {
+    pub fn new() -> Self {
+        Self {
             phantom: PhantomData::default(),
-        })
+        }
     }
 }
 
@@ -182,7 +179,7 @@ where
         let handle = ctx.notify_later(msg, interval);
         Box::new(NLSpawnHandleHolderReal::new(handle))
     }
-    as_any_impl!();
+    as_any_ref_in_trait_impl!();
 }
 
 pub trait NotifyHandle<M, A>
@@ -190,7 +187,7 @@ where
     A: Actor<Context = Context<A>>,
 {
     fn notify<'a>(&'a self, msg: M, ctx: &'a mut Context<A>);
-    as_any_dcl!();
+    as_any_ref_in_trait!();
 }
 
 impl<M, A> Default for Box<dyn NotifyHandle<M, A>>
@@ -237,15 +234,21 @@ where
     fn notify<'a>(&'a self, msg: M, ctx: &'a mut Context<A>) {
         ctx.notify(msg)
     }
-    as_any_impl!();
+    as_any_ref_in_trait_impl!();
 }
 
-#[cfg(test)]
-pub fn make_new_test_multi_config<'a>(
-    schema: &App<'a, 'a>,
-    vcls: Vec<Box<dyn VirtualCommandLine>>,
-) -> Result<MultiConfig<'a>, ConfiguratorError> {
-    make_new_multi_config(schema, vcls)
+pub fn db_connection_launch_panic(err: InitializationError, data_directory: &Path) -> ! {
+    panic!(
+        "Couldn't initialize database due to \"{:?}\" at {:?}",
+        err,
+        data_directory.join(DATABASE_FILE)
+    )
+}
+
+#[derive(Message, Debug, Clone, PartialEq, Eq)]
+pub struct MessageScheduler<M: Message> {
+    pub scheduled_msg: M,
+    pub delay: Duration,
 }
 
 #[cfg(test)]
@@ -259,6 +262,7 @@ mod tests {
     use masq_lib::multi_config::CommandLineVcl;
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use std::ops::Sub;
+    use std::panic::{catch_unwind, AssertUnwindSafe};
 
     #[test]
     fn indicates_dead_stream_identifies_dead_stream_errors() {
@@ -319,7 +323,7 @@ mod tests {
     fn handle_ui_crash_message_does_not_crash_if_not_crashable() {
         init_test_logging();
         let mut logger = Logger::new("handle_ui_crash_message_does_not_crash_if_not_crashable");
-        logger.set_level_for_a_test(Level::Info);
+        logger.set_level_for_test(Level::Info);
         let msg_body = UiCrashRequest {
             actor: "CRASHKEY".to_string(),
             panic_message: "Foiled again!".to_string(),
@@ -532,5 +536,28 @@ mod tests {
         );
         assert!(notify_exec_duration < Duration::from_millis(DELAYED));
         assert!(notify_later_exec_duration >= Duration::from_millis(DELAYED));
+    }
+
+    #[test]
+    fn db_connection_initialization_panic_message_contains_full_path() {
+        let path = Path::new("first_directory").join("second_directory");
+
+        let caught_panic_err = catch_unwind(AssertUnwindSafe(|| {
+            db_connection_launch_panic(
+                InitializationError::SqliteError(rusqlite::Error::ExecuteReturnedResults),
+                &path,
+            );
+        }));
+
+        let caught_panic = caught_panic_err.unwrap_err();
+        let panic_message = caught_panic.downcast_ref::<String>().unwrap();
+        assert_eq!(
+            panic_message,
+            &format!(
+                "Couldn't initialize database due to \"{:?}\" at {:?}",
+                InitializationError::SqliteError(rusqlite::Error::ExecuteReturnedResults),
+                path.join(DATABASE_FILE)
+            )
+        );
     }
 }

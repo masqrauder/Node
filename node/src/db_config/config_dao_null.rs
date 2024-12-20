@@ -1,15 +1,14 @@
 // Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::database::db_initializer::{DbInitializerReal, CURRENT_SCHEMA_VERSION};
-use crate::db_config::config_dao::{
-    ConfigDao, ConfigDaoError, ConfigDaoRead, ConfigDaoReadWrite, ConfigDaoRecord, ConfigDaoWrite,
-};
+use crate::database::db_initializer::DbInitializerReal;
+use crate::database::rusqlite_wrappers::TransactionSafeWrapper;
+use crate::db_config::config_dao::{ConfigDao, ConfigDaoError, ConfigDaoRecord};
+use crate::neighborhood::DEFAULT_MIN_HOPS;
 use crate::sub_lib::accountant::{DEFAULT_PAYMENT_THRESHOLDS, DEFAULT_SCAN_INTERVALS};
 use crate::sub_lib::neighborhood::DEFAULT_RATE_PACK;
 use itertools::Itertools;
 use masq_lib::blockchains::chains::Chain;
-use masq_lib::constants::DEFAULT_GAS_PRICE;
-use rusqlite::Transaction;
+use masq_lib::constants::{CURRENT_SCHEMA_VERSION, DEFAULT_GAS_PRICE};
 use std::collections::HashMap;
 
 /*
@@ -43,19 +42,12 @@ insurmountable, but it would need to be considered and coded around.
 
  */
 
+#[derive(Debug, PartialEq, Eq)]
 pub struct ConfigDaoNull {
     data: HashMap<String, (Option<String>, bool)>,
 }
 
 impl ConfigDao for ConfigDaoNull {
-    fn start_transaction<'b, 'c: 'b>(
-        &'c mut self,
-    ) -> Result<Box<dyn ConfigDaoReadWrite + 'b>, ConfigDaoError> {
-        Ok(Box::new(ConfigDaoNull::default()))
-    }
-}
-
-impl ConfigDaoRead for ConfigDaoNull {
     fn get_all(&self) -> Result<Vec<ConfigDaoRecord>, ConfigDaoError> {
         let keys = self.data.keys().sorted();
         Ok(keys
@@ -76,23 +68,20 @@ impl ConfigDaoRead for ConfigDaoNull {
             )),
         }
     }
-}
 
-impl ConfigDaoWrite for ConfigDaoNull {
     fn set(&self, _name: &str, _value: Option<String>) -> Result<(), ConfigDaoError> {
         Ok(())
     }
 
-    fn commit(&mut self) -> Result<(), ConfigDaoError> {
+    fn set_by_guest_transaction(
+        &self,
+        _txn: &mut TransactionSafeWrapper,
+        _name: &str,
+        _value: Option<String>,
+    ) -> Result<(), ConfigDaoError> {
         Ok(())
     }
-
-    fn extract(&mut self) -> Result<Transaction, ConfigDaoError> {
-        intentionally_blank!()
-    }
 }
-
-impl ConfigDaoReadWrite for ConfigDaoNull {}
 
 impl Default for ConfigDaoNull {
     fn default() -> Self {
@@ -131,6 +120,10 @@ impl Default for ConfigDaoNull {
         data.insert("blockchain_service_url".to_string(), (None, false));
         data.insert("past_neighbors".to_string(), (None, true));
         data.insert("mapping_protocol".to_string(), (None, false));
+        data.insert(
+            "min_hops".to_string(),
+            (Some(DEFAULT_MIN_HOPS.to_string()), false),
+        );
         data.insert("earning_wallet_address".to_string(), (None, false));
         data.insert(
             "schema_version".to_string(),
@@ -148,6 +141,7 @@ impl Default for ConfigDaoNull {
             "scan_intervals".to_string(),
             (Some(DEFAULT_SCAN_INTERVALS.to_string()), false),
         );
+        data.insert("max_block_count".to_string(), (None, false));
         Self { data }
     }
 }
@@ -155,9 +149,11 @@ impl Default for ConfigDaoNull {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::database::db_initializer::DbInitializationConfig;
     use crate::database::db_initializer::DbInitializer;
-    use crate::database::db_migrations::MigratorConfig;
+    use crate::database::test_utils::transaction_wrapper_mock::TransactionInnerWrapperMockBuilder;
     use crate::db_config::config_dao::ConfigDaoReal;
+    use crate::neighborhood::DEFAULT_MIN_HOPS;
     use masq_lib::blockchains::chains::Chain;
     use masq_lib::constants::{DEFAULT_CHAIN, ETH_MAINNET_CONTRACT_CREATION_BLOCK};
     use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
@@ -167,6 +163,7 @@ mod tests {
     fn get_works() {
         let subject = ConfigDaoNull::default();
 
+        assert_eq!(subject.get("booga"), Err(ConfigDaoError::NotPresent));
         assert_eq!(
             subject.get("chain_name").unwrap(),
             ConfigDaoRecord::new(
@@ -184,21 +181,16 @@ mod tests {
             )
         );
         assert_eq!(
+            subject.get("consuming_wallet_private_key").unwrap(),
+            ConfigDaoRecord::new("consuming_wallet_private_key", None, true)
+        );
+        assert_eq!(
             subject.get("gas_price").unwrap(),
             ConfigDaoRecord::new("gas_price", Some("1"), false)
         );
         assert_eq!(
-            subject.get("start_block").unwrap(),
-            ConfigDaoRecord::new(
-                "start_block",
-                Some(&DEFAULT_CHAIN.rec().contract_creation_block.to_string()),
-                false
-            )
-        );
-        assert_eq!(subject.get("booga"), Err(ConfigDaoError::NotPresent));
-        assert_eq!(
-            subject.get("consuming_wallet_private_key").unwrap(),
-            ConfigDaoRecord::new("consuming_wallet_private_key", None, true)
+            subject.get("min_hops").unwrap(),
+            ConfigDaoRecord::new("min_hops", Some(&DEFAULT_MIN_HOPS.to_string()), false)
         );
         assert_eq!(
             subject.get("payment_thresholds").unwrap(),
@@ -220,6 +212,14 @@ mod tests {
                 false
             )
         );
+        assert_eq!(
+            subject.get("start_block").unwrap(),
+            ConfigDaoRecord::new(
+                "start_block",
+                Some(&DEFAULT_CHAIN.rec().contract_creation_block.to_string()),
+                false
+            )
+        );
     }
 
     #[test]
@@ -230,7 +230,7 @@ mod tests {
         );
         let db_initializer = DbInitializerReal::default();
         let conn = db_initializer
-            .initialize(&data_dir, true, MigratorConfig::test_default())
+            .initialize(&data_dir, DbInitializationConfig::test_default())
             .unwrap();
         let real_config_dao = ConfigDaoReal::new(conn);
         let subject = ConfigDaoNull::default();
@@ -286,6 +286,7 @@ mod tests {
                 "schema_version",
                 Some(format!("{}", CURRENT_SCHEMA_VERSION).as_str()),
             ),
+            ("max_block_count", None),
         ]
         .into_iter()
         .map(|(k, v_opt)| (k.to_string(), v_opt.map(|v| v.to_string())))
@@ -293,5 +294,43 @@ mod tests {
         .sort_by_key(|p| p.0.clone());
 
         assert_eq!(value_pairs, expected_pairs);
+    }
+
+    #[test]
+    fn set_works_simple() {
+        let subject = ConfigDaoNull::default();
+
+        subject.set("param1", Some("value1".to_string())).unwrap();
+        subject.set("schema_version", None).unwrap();
+        subject
+            .set("schema_version", Some("456".to_string()))
+            .unwrap();
+
+        let subject_data_sorted = subject.data.iter().sorted().collect::<Vec<(_, _)>>();
+        let comparison_subject_data_sorted = subject.data.iter().sorted().collect::<Vec<(_, _)>>();
+        assert_eq!(subject_data_sorted, comparison_subject_data_sorted)
+    }
+
+    #[test]
+    fn set_by_guest_transaction_works_simple() {
+        let subject = ConfigDaoNull::default();
+        let txn_inner_builder = TransactionInnerWrapperMockBuilder::default();
+        let mut txn = TransactionSafeWrapper::new_with_builder(txn_inner_builder);
+        let subject_data_before_sorted = subject.data.iter().sorted().collect::<Vec<(_, _)>>();
+
+        subject
+            .set_by_guest_transaction(&mut txn, "param1", Some("value1".to_string()))
+            .unwrap();
+        subject
+            .set_by_guest_transaction(&mut txn, "schema_version", None)
+            .unwrap();
+        subject
+            .set_by_guest_transaction(&mut txn, "schema_version", Some("456".to_string()))
+            .unwrap();
+
+        let subject_data_after_sorted = subject.data.iter().sorted().collect::<Vec<(_, _)>>();
+        assert_eq!(subject_data_after_sorted, subject_data_before_sorted)
+        // Test didn't blow up so no method from the txn wrapper was called,
+        // therefore we don't even have to consider committing the transaction
     }
 }

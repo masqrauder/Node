@@ -1,10 +1,11 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
+use crate::accountant::DEFAULT_PENDING_TOO_LONG_SEC;
 use crate::actor_system_factory::ActorSystemFactory;
 use crate::actor_system_factory::ActorSystemFactoryReal;
 use crate::actor_system_factory::{ActorFactoryReal, ActorSystemFactoryToolsReal};
 use crate::crash_test_dummy::CrashTestDummy;
+use crate::database::db_initializer::DbInitializationConfig;
 use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
-use crate::database::db_migrations::MigratorConfig;
 use crate::db_config::config_dao::ConfigDaoReal;
 use crate::db_config::persistent_configuration::{
     PersistentConfiguration, PersistentConfigurationReal,
@@ -14,14 +15,16 @@ use crate::json_discriminator_factory::JsonDiscriminatorFactory;
 use crate::listener_handler::ListenerHandler;
 use crate::listener_handler::ListenerHandlerFactory;
 use crate::listener_handler::ListenerHandlerFactoryReal;
+use crate::neighborhood::DEFAULT_MIN_HOPS;
 use crate::node_configurator::node_configurator_standard::{
     NodeConfiguratorStandardPrivileged, NodeConfiguratorStandardUnprivileged,
 };
 use crate::node_configurator::{initialize_database, DirsWrapper, NodeConfigurator};
 use crate::privilege_drop::{IdWrapper, IdWrapperReal};
 use crate::server_initializer::LoggerInitializerWrapper;
+use crate::stream_handler_pool::StreamHandlerPoolSubs;
 use crate::sub_lib::accountant;
-use crate::sub_lib::accountant::AccountantConfig;
+use crate::sub_lib::accountant::{PaymentThresholds, ScanIntervals};
 use crate::sub_lib::blockchain_bridge::BlockchainBridgeConfig;
 use crate::sub_lib::cryptde::CryptDE;
 use crate::sub_lib::cryptde_null::CryptDENull;
@@ -31,6 +34,7 @@ use crate::sub_lib::neighborhood::{NeighborhoodConfig, NeighborhoodMode};
 use crate::sub_lib::node_addr::NodeAddr;
 use crate::sub_lib::socket_server::ConfiguredByPrivilege;
 use crate::sub_lib::ui_gateway::UiGatewayConfig;
+use crate::sub_lib::utils::db_connection_launch_panic;
 use crate::sub_lib::wallet::Wallet;
 use futures::try_ready;
 use itertools::Itertools;
@@ -89,7 +93,12 @@ impl Clone for CryptDEPair {
 
 #[derive(Copy)]
 pub struct CryptDEPair {
+    // This has the public key by which this Node is known to other Nodes on the network
     pub main: &'static dyn CryptDE,
+    // This has the public key with which this Node instructs exit Nodes to encrypt responses.
+    // In production, it is unrelated to the main public key to prevent the exit Node from
+    // identifying the originating Node. In tests using --fake-public-key, the alias public key
+    // is the main public key reversed.
     pub alias: &'static dyn CryptDE,
 }
 
@@ -325,7 +334,9 @@ pub struct BootstrapperConfig {
     // These fields can be set while privileged without penalty
     pub log_level: LevelFilter,
     pub dns_servers: Vec<SocketAddr>,
-    pub accountant_config_opt: Option<AccountantConfig>,
+    pub scan_intervals_opt: Option<ScanIntervals>,
+    pub suppress_initial_scans: bool,
+    pub when_pending_too_long_sec: u64,
     pub crash_point: CrashPoint,
     pub clandestine_discriminator_factories: Vec<Box<dyn DiscriminatorFactory>>,
     pub ui_gateway_config: UiGatewayConfig,
@@ -337,6 +348,7 @@ pub struct BootstrapperConfig {
     pub alias_cryptde_null_opt: Option<CryptDENull>,
     pub mapping_protocol_opt: Option<AutomapProtocol>,
     pub real_user: RealUser,
+    pub payment_thresholds_opt: Option<PaymentThresholds>,
 
     // These fields must be set without privilege: otherwise the database will be created as root
     pub db_password_opt: Option<String>,
@@ -358,7 +370,8 @@ impl BootstrapperConfig {
             // These fields can be set while privileged without penalty
             log_level: LevelFilter::Off,
             dns_servers: vec![],
-            accountant_config_opt: Default::default(),
+            scan_intervals_opt: None,
+            suppress_initial_scans: false,
             crash_point: CrashPoint::None,
             clandestine_discriminator_factories: vec![],
             ui_gateway_config: UiGatewayConfig {
@@ -376,6 +389,7 @@ impl BootstrapperConfig {
             alias_cryptde_null_opt: None,
             mapping_protocol_opt: None,
             real_user: RealUser::new(None, None, None),
+            payment_thresholds_opt: Default::default(),
 
             // These fields must be set without privilege: otherwise the database will be created as root
             db_password_opt: None,
@@ -384,7 +398,9 @@ impl BootstrapperConfig {
             consuming_wallet_opt: None,
             neighborhood_config: NeighborhoodConfig {
                 mode: NeighborhoodMode::ZeroHop,
+                min_hops: DEFAULT_MIN_HOPS,
             },
+            when_pending_too_long_sec: DEFAULT_PENDING_TOO_LONG_SEC,
         }
     }
 
@@ -398,7 +414,10 @@ impl BootstrapperConfig {
         self.earning_wallet = unprivileged.earning_wallet;
         self.consuming_wallet_opt = unprivileged.consuming_wallet_opt;
         self.db_password_opt = unprivileged.db_password_opt;
-        self.accountant_config_opt = unprivileged.accountant_config_opt;
+        self.scan_intervals_opt = unprivileged.scan_intervals_opt;
+        self.suppress_initial_scans = unprivileged.suppress_initial_scans;
+        self.payment_thresholds_opt = unprivileged.payment_thresholds_opt;
+        self.when_pending_too_long_sec = unprivileged.when_pending_too_long_sec;
     }
 
     pub fn exit_service_rate(&self) -> u64 {
@@ -500,16 +519,7 @@ impl ConfiguredByPrivilege for Bootstrapper {
                 if node_addr.ip_addr() == Ipv4Addr::new(0, 0, 0, 0) => {} // node_addr still coming
             _ => Bootstrapper::report_local_descriptor(cryptdes.main, &self.config.node_descriptor), // here or not coming
         }
-        let stream_handler_pool_subs = self.actor_system_factory.make_and_start_actors(
-            self.config.clone(),
-            Box::new(ActorFactoryReal {}),
-            initialize_database(
-                &self.config.data_directory,
-                false,
-                MigratorConfig::panic_on_migration(),
-            ),
-        );
-
+        let stream_handler_pool_subs = self.start_actors_and_return_shp_subs();
         self.listener_handlers
             .iter_mut()
             .for_each(|f| f.bind_subs(stream_handler_pool_subs.add_sub.clone()));
@@ -598,6 +608,17 @@ impl Bootstrapper {
         }
     }
 
+    fn start_actors_and_return_shp_subs(&self) -> StreamHandlerPoolSubs {
+        self.actor_system_factory.make_and_start_actors(
+            self.config.clone(),
+            Box::new(ActorFactoryReal {}),
+            initialize_database(
+                &self.config.data_directory,
+                DbInitializationConfig::panic_on_migration(),
+            ),
+        )
+    }
+
     pub fn report_local_descriptor(cryptde: &dyn CryptDE, descriptor: &NodeDescriptor) {
         let descriptor_msg = format!(
             "MASQ Node local descriptor: {}",
@@ -614,10 +635,11 @@ impl Bootstrapper {
                 let conn = DbInitializerReal::default()
                     .initialize(
                         &self.config.data_directory,
-                        false,
-                        MigratorConfig::panic_on_migration(),
+                        DbInitializationConfig::panic_on_migration(),
                     )
-                    .expect("Cannot initialize database");
+                    .unwrap_or_else(|err| {
+                        db_connection_launch_panic(err, &self.config.data_directory)
+                    });
                 let config_dao = ConfigDaoReal::new(conn);
                 let mut persistent_config = PersistentConfigurationReal::new(Box::new(config_dao));
                 let clandestine_port = self.establish_clandestine_port(&mut persistent_config);
@@ -634,13 +656,11 @@ impl Bootstrapper {
                     )
                     .expect("Failed to bind ListenerHandler to clandestine port");
                 self.listener_handlers.push(listener_handler);
-                self.config.neighborhood_config = NeighborhoodConfig {
-                    mode: NeighborhoodMode::Standard(
-                        NodeAddr::new(&node_addr.ip_addr(), &[clandestine_port]),
-                        neighbor_configs.clone(),
-                        *rate_pack,
-                    ),
-                };
+                self.config.neighborhood_config.mode = NeighborhoodMode::Standard(
+                    NodeAddr::new(&node_addr.ip_addr(), &[clandestine_port]),
+                    neighbor_configs.clone(),
+                    *rate_pack,
+                );
                 Some(clandestine_port)
             } else {
                 None
@@ -689,13 +709,14 @@ impl Bootstrapper {
 
 #[cfg(test)]
 mod tests {
+    use crate::accountant::DEFAULT_PENDING_TOO_LONG_SEC;
     use crate::actor_system_factory::{ActorFactory, ActorSystemFactory};
     use crate::bootstrapper::{
         main_cryptde_ref, Bootstrapper, BootstrapperConfig, EnvironmentWrapper, PortConfiguration,
         RealUser,
     };
+    use crate::database::db_initializer::DbInitializationConfig;
     use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
-    use crate::database::db_migrations::MigratorConfig;
     use crate::db_config::config_dao::ConfigDaoReal;
     use crate::db_config::persistent_configuration::{
         PersistentConfigError, PersistentConfiguration, PersistentConfigurationReal,
@@ -703,20 +724,23 @@ mod tests {
     use crate::discriminator::Discriminator;
     use crate::discriminator::UnmaskedChunk;
     use crate::listener_handler::{ListenerHandler, ListenerHandlerFactory};
-    use crate::node_test_utils::make_stream_handler_pool_subs_from;
-    use crate::node_test_utils::TestLogOwner;
     use crate::node_test_utils::{extract_log, DirsWrapperMock, IdWrapperMock};
+    use crate::node_test_utils::{make_stream_handler_pool_subs_from_recorder, TestLogOwner};
     use crate::server_initializer::test_utils::LoggerInitializerWrapperMock;
     use crate::server_initializer::LoggerInitializerWrapper;
     use crate::stream_handler_pool::StreamHandlerPoolSubs;
     use crate::stream_messages::AddStreamMsg;
+    use crate::sub_lib::accountant::ScanIntervals;
     use crate::sub_lib::cryptde::PublicKey;
     use crate::sub_lib::cryptde::{CryptDE, PlainData};
     use crate::sub_lib::cryptde_null::CryptDENull;
-    use crate::sub_lib::neighborhood::{NeighborhoodConfig, NeighborhoodMode, NodeDescriptor};
+    use crate::sub_lib::neighborhood::{
+        NeighborhoodConfig, NeighborhoodMode, NodeDescriptor, DEFAULT_RATE_PACK,
+    };
     use crate::sub_lib::node_addr::NodeAddr;
     use crate::sub_lib::socket_server::ConfiguredByPrivilege;
     use crate::sub_lib::stream_connector::ConnectionInfo;
+    use crate::test_utils::neighborhood_test_utils::MIN_HOPS_FOR_TEST;
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
     use crate::test_utils::recorder::make_recorder;
     use crate::test_utils::recorder::RecordAwaiter;
@@ -724,12 +748,12 @@ mod tests {
     use crate::test_utils::tokio_wrapper_mocks::ReadHalfWrapperMock;
     use crate::test_utils::tokio_wrapper_mocks::WriteHalfWrapperMock;
     use crate::test_utils::unshared_test_utils::{
-        make_populated_accountant_config_with_defaults, make_simplified_multi_config,
+        assert_on_initialization_with_panic_on_migration, make_simplified_multi_config,
     };
     use crate::test_utils::{assert_contains, rate_pack};
     use crate::test_utils::{main_cryptde, make_wallet};
-    use actix::Recipient;
     use actix::System;
+    use actix::{Actor, Recipient};
     use crossbeam_channel::unbounded;
     use futures::Future;
     use lazy_static::lazy_static;
@@ -742,14 +766,14 @@ mod tests {
     use masq_lib::test_utils::fake_stream_holder::FakeStreamHolder;
     use masq_lib::test_utils::logging::{init_test_logging, TestLog, TestLogHandler};
     use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, TEST_DEFAULT_CHAIN};
-    use masq_lib::utils::find_free_port;
+    use masq_lib::utils::{find_free_port, to_string};
     use std::cell::RefCell;
     use std::collections::HashMap;
     use std::io;
     use std::io::ErrorKind;
     use std::marker::Sync;
     use std::net::{IpAddr, SocketAddr};
-    use std::path::PathBuf;
+    use std::path::{Path, PathBuf};
     use std::str::FromStr;
     use std::sync::{Arc, Mutex};
     use std::thread;
@@ -909,9 +933,9 @@ mod tests {
             sudo_user: Option<&str>,
         ) -> EnvironmentWrapperMock {
             EnvironmentWrapperMock {
-                sudo_uid: sudo_uid.map(|s| s.to_string()),
-                sudo_gid: sudo_gid.map(|s| s.to_string()),
-                sudo_user: sudo_user.map(|s| s.to_string()),
+                sudo_uid: sudo_uid.map(to_string),
+                sudo_gid: sudo_gid.map(to_string),
+                sudo_user: sudo_user.map(to_string),
             }
         }
     }
@@ -1127,6 +1151,8 @@ mod tests {
                 "2.2.2.2",
                 "--real-user",
                 "123:456:/home/booga",
+                "--chain",
+                "polygon-amoy",
             ]))
             .unwrap();
 
@@ -1209,6 +1235,7 @@ mod tests {
         let clandestine_port_opt = Some(44444);
         let neighborhood_config = NeighborhoodConfig {
             mode: NeighborhoodMode::OriginateOnly(vec![], rate_pack(9)),
+            min_hops: MIN_HOPS_FOR_TEST,
         };
         let earning_wallet = make_wallet("earning wallet");
         let consuming_wallet_opt = Some(make_wallet("consuming wallet"));
@@ -1222,8 +1249,9 @@ mod tests {
         unprivileged_config.earning_wallet = earning_wallet.clone();
         unprivileged_config.consuming_wallet_opt = consuming_wallet_opt.clone();
         unprivileged_config.db_password_opt = db_password_opt.clone();
-        unprivileged_config.accountant_config_opt =
-            Some(make_populated_accountant_config_with_defaults());
+        unprivileged_config.scan_intervals_opt = Some(ScanIntervals::default());
+        unprivileged_config.suppress_initial_scans = false;
+        unprivileged_config.when_pending_too_long_sec = DEFAULT_PENDING_TOO_LONG_SEC;
 
         privileged_config.merge_unprivileged(unprivileged_config);
 
@@ -1244,8 +1272,13 @@ mod tests {
         assert_eq!(privileged_config.consuming_wallet_opt, consuming_wallet_opt);
         assert_eq!(privileged_config.db_password_opt, db_password_opt);
         assert_eq!(
-            privileged_config.accountant_config_opt,
-            Some(make_populated_accountant_config_with_defaults())
+            privileged_config.scan_intervals_opt,
+            Some(ScanIntervals::default())
+        );
+        assert_eq!(privileged_config.suppress_initial_scans, false);
+        assert_eq!(
+            privileged_config.when_pending_too_long_sec,
+            DEFAULT_PENDING_TOO_LONG_SEC
         );
         //some values from the privileged config
         assert_eq!(privileged_config.log_level, Off);
@@ -1260,6 +1293,7 @@ mod tests {
 
     #[test]
     fn initialize_as_unprivileged_passes_node_descriptor_to_ui_config() {
+        init_test_logging();
         let _lock = INITIALIZATION.lock();
         let data_dir = ensure_node_home_directory_exists(
             "bootstrapper",
@@ -1362,6 +1396,24 @@ mod tests {
 
         let config = subject.config;
         assert_eq!(config.blockchain_bridge_config.gas_price, 11);
+    }
+
+    #[test]
+    fn initialize_as_unprivileged_implements_panic_on_migration_for_make_and_start_actors() {
+        let _lock = INITIALIZATION.lock();
+        let data_dir = ensure_node_home_directory_exists(
+            "bootstrapper",
+            "initialize_as_unprivileged_implements_panic_on_migration_for_make_and_start_actors",
+        );
+
+        let act = |data_dir: &Path| {
+            let mut config = BootstrapperConfig::new();
+            config.data_directory = data_dir.to_path_buf();
+            let subject = BootstrapperBuilder::new().config(config).build();
+            subject.start_actors_and_return_shp_subs();
+        };
+
+        assert_on_initialization_with_panic_on_migration(&data_dir, &act);
     }
 
     #[test]
@@ -1784,7 +1836,7 @@ mod tests {
             "set_up_clandestine_port_handles_specified_port_in_standard_mode",
         );
         let conn = DbInitializerReal::default()
-            .initialize(&data_dir, true, MigratorConfig::test_default())
+            .initialize(&data_dir, DbInitializationConfig::test_default())
             .unwrap();
         let cryptde_actual = CryptDENull::from(&PublicKey::new(&[1, 2, 3, 4]), TEST_DEFAULT_CHAIN);
         let cryptde: &dyn CryptDE = &cryptde_actual;
@@ -1803,6 +1855,7 @@ mod tests {
                 ))],
                 rate_pack(100),
             ),
+            min_hops: MIN_HOPS_FOR_TEST,
         };
         config.data_directory = data_dir.clone();
         config.clandestine_port_opt = Some(port);
@@ -1858,7 +1911,7 @@ mod tests {
             "set_up_clandestine_port_handles_unspecified_port_in_standard_mode",
         );
         let conn = DbInitializerReal::default()
-            .initialize(&data_dir, true, MigratorConfig::test_default())
+            .initialize(&data_dir, DbInitializationConfig::test_default())
             .unwrap();
         let mut config = BootstrapperConfig::new();
         config.neighborhood_config = NeighborhoodConfig {
@@ -1872,6 +1925,7 @@ mod tests {
                 ))],
                 rate_pack(100),
             ),
+            min_hops: MIN_HOPS_FOR_TEST,
         };
         config.data_directory = data_dir.clone();
         config.clandestine_port_opt = None;
@@ -1920,6 +1974,7 @@ mod tests {
                 ))],
                 rate_pack(100),
             ),
+            min_hops: MIN_HOPS_FOR_TEST,
         };
         let listener_handler = ListenerHandlerNull::new(vec![]);
         let mut subject = BootstrapperBuilder::new()
@@ -1956,6 +2011,7 @@ mod tests {
                 Chain::EthRopsten,
                 cryptde,
             ))]),
+            min_hops: MIN_HOPS_FOR_TEST,
         };
         let listener_handler = ListenerHandlerNull::new(vec![]);
         let mut subject = BootstrapperBuilder::new()
@@ -1985,6 +2041,7 @@ mod tests {
         config.clandestine_port_opt = None;
         config.neighborhood_config = NeighborhoodConfig {
             mode: NeighborhoodMode::ZeroHop,
+            min_hops: MIN_HOPS_FOR_TEST,
         };
         let listener_handler = ListenerHandlerNull::new(vec![]);
         let mut subject = BootstrapperBuilder::new()
@@ -2001,6 +2058,27 @@ mod tests {
             .mode
             .node_addr_opt()
             .is_none());
+    }
+
+    #[test]
+    fn set_up_clandestine_port_panics_on_migration() {
+        let data_dir = ensure_node_home_directory_exists(
+            "bootstrapper",
+            "set_up_clandestine_port_panics_on_migration",
+        );
+
+        let act = |data_dir: &Path| {
+            let mut config = BootstrapperConfig::new();
+            config.data_directory = data_dir.to_path_buf();
+            config.neighborhood_config = NeighborhoodConfig {
+                mode: NeighborhoodMode::Standard(NodeAddr::default(), vec![], DEFAULT_RATE_PACK),
+                min_hops: MIN_HOPS_FOR_TEST,
+            };
+            let mut subject = BootstrapperBuilder::new().config(config).build();
+            subject.set_up_clandestine_port();
+        };
+
+        assert_on_initialization_with_panic_on_migration(&data_dir, &act);
     }
 
     #[test]
@@ -2151,7 +2229,9 @@ mod tests {
                     StreamHandlerPoolCluster {
                         recording: Some(recording),
                         awaiter: Some(awaiter),
-                        subs: make_stream_handler_pool_subs_from(Some(stream_handler_pool)),
+                        subs: make_stream_handler_pool_subs_from_recorder(
+                            &stream_handler_pool.start(),
+                        ),
                     }
                 };
 

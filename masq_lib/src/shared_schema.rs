@@ -1,7 +1,10 @@
+// Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
+
 use crate::constants::{
-    DEFAULT_GAS_PRICE, DEFAULT_UI_PORT, DEV_CHAIN_FULL_IDENTIFIER, ETH_MAINNET_FULL_IDENTIFIER,
-    ETH_ROPSTEN_FULL_IDENTIFIER, HIGHEST_USABLE_PORT, LOWEST_USABLE_INSECURE_PORT,
-    POLYGON_MAINNET_FULL_IDENTIFIER, POLYGON_MUMBAI_FULL_IDENTIFIER,
+    BASE_MAINNET_FULL_IDENTIFIER, BASE_SEPOLIA_FULL_IDENTIFIER, DEFAULT_GAS_PRICE, DEFAULT_UI_PORT,
+    DEV_CHAIN_FULL_IDENTIFIER, ETH_MAINNET_FULL_IDENTIFIER, ETH_ROPSTEN_FULL_IDENTIFIER,
+    HIGHEST_USABLE_PORT, LOWEST_USABLE_INSECURE_PORT, POLYGON_AMOY_FULL_IDENTIFIER,
+    POLYGON_MAINNET_FULL_IDENTIFIER,
 };
 use crate::crash_point::CrashPoint;
 use clap::{App, Arg};
@@ -11,6 +14,7 @@ pub const BLOCKCHAIN_SERVICE_HELP: &str =
     "The Ethereum client you wish to use to provide Blockchain \
      exit services from your MASQ Node (e.g. http://localhost:8545, \
      https://ropsten.infura.io/v3/YOUR-PROJECT-ID, https://mainnet.infura.io/v3/YOUR-PROJECT-ID), \
+     https://base-mainnet.g.alchemy.com/v2/d66UL0lPrltmweEqVsv3opBSVI3wkL8I, \
      https://polygon-mainnet.infura.io/v3/YOUR-PROJECT-ID";
 pub const CHAIN_HELP: &str =
     "The blockchain network MASQ Node will configure itself to use. You must ensure the \
@@ -30,8 +34,9 @@ pub const CONSUMING_PRIVATE_KEY_HELP: &str = "The private key for the Ethereum w
      supply exactly the same private key every time you run the Node. A consuming private key is 64 case-insensitive \
      hexadecimal digits.";
 pub const DATA_DIRECTORY_HELP: &str =
-    "Directory in which the Node will store its persistent state, including at \
-     least its database and by default its configuration file as well.";
+    "Directory in which the Node will store its persistent state, including at least its database \
+    and by default its configuration file as well.\nNote: any existing database in the data directory \
+    must have been created from the same chain this run is using, or the Node will be terminated.";
 pub const DB_PASSWORD_HELP: &str =
     "A password or phrase to decrypt the encrypted material in the database, to include your \
      mnemonic seed (if applicable) and your list of previous neighbors. If you don't provide this \
@@ -61,8 +66,9 @@ pub const NEIGHBORS_HELP: &str = "One or more Node descriptors for running Nodes
      on startup. A Node descriptor looks similar to one of these:\n\n\
      masq://polygon-mainnet:d2U3Dv1BqtS5t_Zz3mt9_sCl7AgxUlnkB4jOMElylrU@172.50.48.6:9342\n\
      masq://eth-mainnet:gBviQbjOS3e5ReFQCvIhUM3i02d1zPleo1iXg_EN6zQ@86.75.30.9:5542\n\
-     masq://polygon-mumbai:A6PGHT3rRjaeFpD_rFi3qGEXAVPq7bJDfEUZpZaIyq8@14.10.50.6:10504\n\
-     masq://eth-ropsten:OHsC2CAm4rmfCkaFfiynwxflUgVTJRb2oY5mWxNCQkY@150.60.42.72:6642/4789/5254\n\n\
+     masq://base-mainnet:ZjPLnb9RrgsRM1D9edqH8jx9DkbPZSWqqFqLnmdKhsk@112.55.78.0:7878\n\
+     masq://polygon-amoy:A6PGHT3rRjaeFpD_rFi3qGEXAVPq7bJDfEUZpZaIyq8@14.10.50.6:10504\n\
+     masq://base-sepolia:OHsC2CAm4rmfCkaFfiynwxflUgVTJRb2oY5mWxNCQkY@150.60.42.72:6642/4789/5254\n\n\
      Notice each of the different chain identifiers in the masq protocol prefix - they determine a family of chains \
      and also the network the descriptor belongs to (mainnet or a testnet). See also the last descriptor which shows \
      a configuration with multiple clandestine ports.\n\n\
@@ -105,6 +111,26 @@ pub const MAPPING_PROTOCOL_HELP: &str =
     public IP address with the --ip parameter. If the Node communicates successfully with your router, \
     it will remember the protocol it used, and on its next run it will try that protocol first, unless \
     you specify a different protocol on the command line.";
+pub const MIN_HOPS_HELP: &str =
+    "The Node is a system that routes data through multiple Nodes to enhance security and privacy. \
+    However, the level of anonymity and security provided depends on the number of hops specified \
+    by the user. By default, the system allows the user to customize the number of hops within a \
+    range of 1 to 6.\n\n\
+    It's important to note that if the user selects less than 3 hops, the anonymity of their data \
+    cannot be guaranteed. Here's a breakdown of the different hop counts and their implications:\n\n\
+    1. A 1-hop route means that the exit Node will know the IP address of the originating Node. \
+    Also, someone snooping traffic on the network will be able to see both the originating Node's IP \
+    and the exit Node's IP in the same packet. A 1-hop route makes MASQ the equivalent of a VPN. \n\
+    2. A 2-hop route removes the ability to see both the originating and exit IP addresses on the \
+    same packet, but it means that the relay Node in the middle (which could be subverted by an attacker) \
+    knows both IP addresses.\n\
+    3. A 3-hop route is the shortest route that prevents any Node in the network (even the originating Node) \
+    from knowing the IP addresses of all the Nodes in the route.\n\
+    4. Increasing the number of hops to 4, 5, or 6 can enhance security, but it will also \
+    increase the cost and latency of the route.\n\
+    If you want to specify a minimum hops count, you can do so by entering a number after the \
+    '--min-hops' parameter. For example, '--min-hops 4' would require at least 4 hops. If you fail \
+    to provide this argument, the system will default to a minimum hops count of 3.";
 pub const REAL_USER_HELP: &str =
     "The user whose identity Node will assume when dropping privileges after bootstrapping. Since Node refuses to \
      run with root privilege after bootstrapping, you might want to use this if you start the Node as root, or if \
@@ -122,13 +148,13 @@ pub const RATE_PACK_HELP: &str = "\
      These four parameters specify your rates that your Node will use for charging other Nodes for your provided \
      services. These are ever present values, defaulted if left unspecified. The parameters must be always supplied \
      all together, delimited by vertical bars and in the right order.\n\n\
-     1. Routing Byte Rate: This parameter indicates an amount of MASQ demanded to process 1 byte of routed payload \
+     1. Routing Byte Rate: This parameter indicates an amount of MASQ in wei demanded to process 1 byte of routed payload \
      while the Node is a common relay Node.\n\n\
-     2. Routing Service Rate: This parameter indicates an amount of MASQ demanded to provide services, unpacking \
+     2. Routing Service Rate: This parameter indicates an amount of MASQ in wei demanded to provide services, unpacking \
      and repacking 1 CORES package, while the Node is a common relay Node.\n\n\
-     3. Exit Byte Rate: This parameter indicates an amount of MASQ demanded to process 1 byte of routed payload \
+     3. Exit Byte Rate: This parameter indicates an amount of MASQ in wei demanded to process 1 byte of routed payload \
      while the Node acts as the exit Node.\n\n\
-     4. Exit Service Rate: This parameter indicates an amount of MASQ demanded to provide services, unpacking and \
+     4. Exit Service Rate: This parameter indicates an amount of MASQ in wei demanded to provide services, unpacking and \
      repacking 1 CORES package, while the Node acts as the exit Node.";
 pub const PAYMENT_THRESHOLDS_HELP: &str = "\
      These are parameters that define thresholds to determine when and how much to pay other Nodes for routing and \
@@ -137,7 +163,7 @@ pub const PAYMENT_THRESHOLDS_HELP: &str = "\
      since they have not paid mature debts. These are ever present values, no matter if the user's set any value, as \
      they have defaults. The parameters must be always supplied all together, delimited by vertical bars and in the right \
      order.\n\n\
-     1. Debt Threshold Gwei: Payables higher than this -- in Gwei of MASQ -- will be suggested for payment immediately \
+     1. Debt Threshold gwei: Payables higher than this -- in gwei of MASQ -- will be suggested for payment immediately \
      upon passing the Maturity Threshold Sec age. Payables less than this can stay unpaid longer. Receivables higher than \
      this will be expected to be settled by other Nodes, but will never cause bans until they pass the Maturity Threshold Sec \
      + Payment Grace Period Sec age. Receivables less than this will survive longer without banning.\n\n\
@@ -145,15 +171,15 @@ pub const PAYMENT_THRESHOLDS_HELP: &str = "\
      that it be paid.\n\n\
      3. Payment Grace Period Sec: A large receivable can get as old as Maturity Threshold Sec + Payment Grace Period Sec \
      -- in seconds -- before the Node that owes it will be banned.\n\n\
-     4. Permanent Debt Allowed Gwei: Receivables this small and smaller -- in Gwei of MASQ -- will not cause bans no \
+     4. Permanent Debt Allowed gwei: Receivables this small and smaller -- in gwei of MASQ -- will not cause bans no \
      matter how old they get.\n\n\
      5. Threshold Interval Sec: This interval -- in seconds -- begins after Maturity Threshold Sec for payables and after \
      Maturity Threshold Sec + Payment Grace Period Sec for receivables. During the interval, the amount of a payable that is \
-     allowed to remain unpaid, or a pending receivable that won’t cause a ban, decreases linearly from the Debt Threshold Gwei \
-     to Permanent Debt Allowed Gwei or Unban Below Gwei.\n\n\
-     6. Unban Below Gwei: When a delinquent Node has been banned due to non-payment, the receivables balance must be paid \
-     below this level -- in Gwei of MASQ -- to cause them to be unbanned. In most cases, you'll want this to be set the same \
-     as Permanent Debt Allowed Gwei.";
+     allowed to remain unpaid, or a pending receivable that won’t cause a ban, decreases linearly from the Debt Threshold gwei \
+     to Permanent Debt Allowed gwei or Unban Below gwei.\n\n\
+     6. Unban Below gwei: When a delinquent Node has been banned due to non-payment, the receivables balance must be paid \
+     below this level -- in gwei of MASQ -- to cause them to be unbanned. In most cases, you'll want this to be set the same \
+     as Permanent Debt Allowed gwei.";
 pub const SCAN_INTERVALS_HELP:&str = "\
      These three intervals describe the length of three different scan cycles running automatically in the background \
      since the Node has connected to a qualified neighborhood that consists of neighbors enabling a complete 3-hop \
@@ -191,35 +217,13 @@ lazy_static! {
         LOWEST_USABLE_INSECURE_PORT, HIGHEST_USABLE_PORT
     );
     pub static ref GAS_PRICE_HELP: String = format!(
-       "The Gas Price is the amount of Gwei you will pay per unit of gas used in a transaction. \
+       "The Gas Price is the amount of gwei you will pay per unit of gas used in a transaction. \
        If left unspecified, MASQ Node will use the previously stored value (Default {}).",
        DEFAULT_GAS_PRICE);
 }
 
 // These Args are needed in more than one clap schema. To avoid code duplication, they're defined here and referred
 // to from multiple places.
-pub fn config_file_arg<'a>() -> Arg<'a, 'a> {
-    Arg::with_name("config-file")
-        .long("config-file")
-        .value_name("FILE-PATH")
-        .default_value("config.toml")
-        .min_values(0)
-        .max_values(1)
-        .required(false)
-        .help(CONFIG_FILE_HELP)
-}
-
-pub fn data_directory_arg<'a>() -> Arg<'a, 'a> {
-    Arg::with_name("data-directory")
-        .long("data-directory")
-        .value_name("DATA-DIRECTORY")
-        .required(false)
-        .min_values(0)
-        .max_values(1)
-        .empty_values(false)
-        .help(DATA_DIRECTORY_HELP)
-}
-
 pub fn chain_arg<'a>() -> Arg<'a, 'a> {
     Arg::with_name("chain")
         .long("chain")
@@ -230,11 +234,34 @@ pub fn chain_arg<'a>() -> Arg<'a, 'a> {
         .help(CHAIN_HELP)
 }
 
+pub fn config_file_arg<'a>() -> Arg<'a, 'a> {
+    Arg::with_name("config-file")
+        .long("config-file")
+        .value_name("FILE-PATH")
+        .min_values(0)
+        .max_values(1)
+        .required(false)
+        .help(CONFIG_FILE_HELP)
+}
+
+pub fn data_directory_arg(help: &str) -> Arg {
+    Arg::with_name("data-directory")
+        .long("data-directory")
+        .value_name("DATA-DIRECTORY")
+        .required(false)
+        .min_values(0)
+        .max_values(1)
+        .empty_values(false)
+        .help(help)
+}
+
 pub fn official_chain_names() -> &'static [&'static str] {
     &[
         POLYGON_MAINNET_FULL_IDENTIFIER,
         ETH_MAINNET_FULL_IDENTIFIER,
-        POLYGON_MUMBAI_FULL_IDENTIFIER,
+        BASE_MAINNET_FULL_IDENTIFIER,
+        BASE_SEPOLIA_FULL_IDENTIFIER,
+        POLYGON_AMOY_FULL_IDENTIFIER,
         ETH_ROPSTEN_FULL_IDENTIFIER,
         DEV_CHAIN_FULL_IDENTIFIER,
     ]
@@ -263,6 +290,26 @@ where
         .max_values(1)
         .validator(validator)
         .help(help)
+}
+
+pub fn gas_price_arg<'a>() -> Arg<'a, 'a> {
+    Arg::with_name("gas-price")
+        .long("gas-price")
+        .value_name("GAS-PRICE")
+        .min_values(0)
+        .max_values(1)
+        .validator(common_validators::validate_gas_price)
+        .help(&GAS_PRICE_HELP)
+}
+
+pub fn min_hops_arg<'a>() -> Arg<'a, 'a> {
+    Arg::with_name("min-hops")
+        .long("min-hops")
+        .value_name("MIN-HOPS")
+        .min_values(0)
+        .max_values(1)
+        .possible_values(&["1", "2", "3", "4", "5", "6"])
+        .help(MIN_HOPS_HELP)
 }
 
 #[cfg(not(target_os = "windows"))]
@@ -346,7 +393,7 @@ pub fn shared_app(head: App<'static, 'static>) -> App<'static, 'static> {
             .case_insensitive(true)
             .hidden(true),
     )
-    .arg(data_directory_arg())
+    .arg(data_directory_arg(DATA_DIRECTORY_HELP))
     .arg(db_password_arg(DB_PASSWORD_HELP))
     .arg(
         Arg::with_name("dns-servers")
@@ -369,15 +416,7 @@ pub fn shared_app(head: App<'static, 'static>) -> App<'static, 'static> {
             .max_values(1)
             .hidden(true),
     )
-    .arg(
-        Arg::with_name("gas-price")
-            .long("gas-price")
-            .value_name("GAS-PRICE")
-            .min_values(0)
-            .max_values(1)
-            .validator(common_validators::validate_gas_price)
-            .help(&GAS_PRICE_HELP),
-    )
+    .arg(gas_price_arg())
     .arg(
         Arg::with_name("ip")
             .long("ip")
@@ -407,6 +446,7 @@ pub fn shared_app(head: App<'static, 'static>) -> App<'static, 'static> {
             .case_insensitive(true)
             .help(MAPPING_PROTOCOL_HELP),
     )
+    .arg(min_hops_arg())
     .arg(
         Arg::with_name("neighborhood-mode")
             .long("neighborhood-mode")
@@ -564,12 +604,19 @@ pub mod common_validators {
         }
     }
 
+    pub fn validate_non_zero_u16(str: String) -> Result<(), String> {
+        match str::parse::<u16>(&str) {
+            Ok(num) if num > 0 => Ok(()),
+            _ => Err(str),
+        }
+    }
+
     pub fn validate_separate_u64_values(values_with_delimiters: String) -> Result<(), String> {
         values_with_delimiters.split('|').try_for_each(|segment| {
             segment
                 .parse::<u64>()
                 .map_err(|_| {
-                    "Wrong format, supply positive numeric values separated by vertical bars like 111|222|333|..."
+                    "Supply positive numeric values separated by vertical bars like 111|222|333|..."
                         .to_string()
                 })
                 .map(|_| ())
@@ -577,7 +624,7 @@ pub mod common_validators {
     }
 }
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub struct ParamError {
     pub parameter: String,
     pub reason: String,
@@ -592,7 +639,7 @@ impl ParamError {
     }
 }
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub struct ConfiguratorError {
     pub param_errors: Vec<ParamError>,
 }
@@ -628,10 +675,11 @@ impl ConfiguratorError {
 
 #[cfg(test)]
 mod tests {
-
     use super::*;
     use crate::blockchains::chains::Chain;
+    use crate::shared_schema::common_validators::validate_non_zero_u16;
     use crate::shared_schema::{common_validators, official_chain_names};
+    use std::collections::HashSet;
 
     #[test]
     fn constants_have_correct_values() {
@@ -640,6 +688,7 @@ mod tests {
             "The Ethereum client you wish to use to provide Blockchain \
              exit services from your MASQ Node (e.g. http://localhost:8545, \
              https://ropsten.infura.io/v3/YOUR-PROJECT-ID, https://mainnet.infura.io/v3/YOUR-PROJECT-ID), \
+             https://base-mainnet.g.alchemy.com/v2/d66UL0lPrltmweEqVsv3opBSVI3wkL8I, \
              https://polygon-mainnet.infura.io/v3/YOUR-PROJECT-ID"
         );
         assert_eq!(
@@ -669,7 +718,9 @@ mod tests {
         assert_eq!(
             DATA_DIRECTORY_HELP,
             "Directory in which the Node will store its persistent state, including at \
-             least its database and by default its configuration file as well."
+             least its database and by default its configuration file as well.\nNote: any existing \
+             database in the data directory must have been created from the same chain this run is using, \
+             or the Node will be terminated."
         );
         assert_eq!(
             DB_PASSWORD_HELP,
@@ -712,8 +763,9 @@ mod tests {
              on startup. A Node descriptor looks similar to one of these:\n\n\
                   masq://polygon-mainnet:d2U3Dv1BqtS5t_Zz3mt9_sCl7AgxUlnkB4jOMElylrU@172.50.48.6:9342\n\
                   masq://eth-mainnet:gBviQbjOS3e5ReFQCvIhUM3i02d1zPleo1iXg_EN6zQ@86.75.30.9:5542\n\
-                  masq://polygon-mumbai:A6PGHT3rRjaeFpD_rFi3qGEXAVPq7bJDfEUZpZaIyq8@14.10.50.6:10504\n\
-                  masq://eth-ropsten:OHsC2CAm4rmfCkaFfiynwxflUgVTJRb2oY5mWxNCQkY@150.60.42.72:6642/4789/5254\n\n\
+                  masq://base-mainnet:ZjPLnb9RrgsRM1D9edqH8jx9DkbPZSWqqFqLnmdKhsk@112.55.78.0:7878\n\
+                  masq://polygon-amoy:A6PGHT3rRjaeFpD_rFi3qGEXAVPq7bJDfEUZpZaIyq8@14.10.50.6:10504\n\
+                  masq://base-sepolia:OHsC2CAm4rmfCkaFfiynwxflUgVTJRb2oY5mWxNCQkY@150.60.42.72:6642/4789/5254\n\n\
              Notice each of the different chain identifiers in the masq protocol prefix - they determine a family of chains \
              and also the network the descriptor belongs to (mainnet or a testnet). See also the last descriptor which shows \
              a configuration with multiple clandestine ports.\n\n\
@@ -757,6 +809,28 @@ mod tests {
              you specify a different protocol on the command line."
         );
         assert_eq!(
+            MIN_HOPS_HELP,
+            "The Node is a system that routes data through multiple Nodes to enhance security and privacy. \
+             However, the level of anonymity and security provided depends on the number of hops specified \
+             by the user. By default, the system allows the user to customize the number of hops within a \
+             range of 1 to 6.\n\n\
+             It's important to note that if the user selects less than 3 hops, the anonymity of their data \
+             cannot be guaranteed. Here's a breakdown of the different hop counts and their implications:\n\n\
+             1. A 1-hop route means that the exit Node will know the IP address of the originating Node. \
+             Also, someone snooping traffic on the network will be able to see both the originating Node's IP \
+             and the exit Node's IP in the same packet. A 1-hop route makes MASQ the equivalent of a VPN. \n\
+             2. A 2-hop route removes the ability to see both the originating and exit IP addresses on the \
+             same packet, but it means that the relay Node in the middle (which could be subverted by an attacker) \
+             knows both IP addresses.\n\
+             3. A 3-hop route is the shortest route that prevents any Node in the network (even the originating Node) \
+             from knowing the IP addresses of all the Nodes in the route.\n\
+             4. Increasing the number of hops to 4, 5, or 6 can enhance security, but it will also \
+             increase the cost and latency of the route.\n\
+             If you want to specify a minimum hops count, you can do so by entering a number after the \
+             '--min-hops' parameter. For example, '--min-hops 4' would require at least 4 hops. If you fail \
+             to provide this argument, the system will default to a minimum hops count of 3."
+        );
+        assert_eq!(
             REAL_USER_HELP,
             "The user whose identity Node will assume when dropping privileges after bootstrapping. Since Node refuses to \
              run with root privilege after bootstrapping, you might want to use this if you start the Node as root, or if \
@@ -791,7 +865,7 @@ mod tests {
         assert_eq!(
             GAS_PRICE_HELP.to_string(),
             format!(
-                "The Gas Price is the amount of Gwei you will pay per unit of gas used in a transaction. \
+                "The Gas Price is the amount of gwei you will pay per unit of gas used in a transaction. \
                  If left unspecified, MASQ Node will use the previously stored value (Default {}).",
                 DEFAULT_GAS_PRICE
             )
@@ -801,13 +875,13 @@ mod tests {
             "These four parameters specify your rates that your Node will use for charging other Nodes for your provided \
              services. These are ever present values, defaulted if left unspecified. The parameters must be always supplied \
              all together, delimited by vertical bars and in the right order.\n\n\
-             1. Routing Byte Rate: This parameter indicates an amount of MASQ demanded to process 1 byte of routed payload \
+             1. Routing Byte Rate: This parameter indicates an amount of MASQ in wei demanded to process 1 byte of routed payload \
              while the Node is a common relay Node.\n\n\
-             2. Routing Service Rate: This parameter indicates an amount of MASQ demanded to provide services, unpacking \
+             2. Routing Service Rate: This parameter indicates an amount of MASQ in wei demanded to provide services, unpacking \
              and repacking 1 CORES package, while the Node is a common relay Node.\n\n\
-             3. Exit Byte Rate: This parameter indicates an amount of MASQ demanded to process 1 byte of routed payload \
+             3. Exit Byte Rate: This parameter indicates an amount of MASQ in wei demanded to process 1 byte of routed payload \
              while the Node acts as the exit Node.\n\n\
-             4. Exit Service Rate: This parameter indicates an amount of MASQ demanded to provide services, unpacking and \
+             4. Exit Service Rate: This parameter indicates an amount of MASQ in wei demanded to provide services, unpacking and \
              repacking 1 CORES package, while the Node acts as the exit Node."
         );
         assert_eq!(
@@ -817,7 +891,7 @@ mod tests {
              exit services. The thresholds are also used to determine whether to offer services to other Nodes or enact a ban \
              since they have not paid mature debts. These are ever present values, no matter if the user's set any value, as \
              they have defaults. The parameters must be always supplied all together, delimited by vertical bars and in the right order.\n\n\
-             1. Debt Threshold Gwei: Payables higher than this -- in Gwei of MASQ -- will be suggested for payment immediately \
+             1. Debt Threshold gwei: Payables higher than this -- in gwei of MASQ -- will be suggested for payment immediately \
              upon passing the Maturity Threshold Sec age. Payables less than this can stay unpaid longer. Receivables higher than \
              this will be expected to be settled by other Nodes, but will never cause bans until they pass the Maturity Threshold Sec \
              + Payment Grace Period Sec age. Receivables less than this will survive longer without banning.\n\n\
@@ -825,15 +899,15 @@ mod tests {
              that it be paid.\n\n\
              3. Payment Grace Period Sec: A large receivable can get as old as Maturity Threshold Sec + Payment Grace Period Sec \
              -- in seconds -- before the Node that owes it will be banned.\n\n\
-             4. Permanent Debt Allowed Gwei: Receivables this small and smaller -- in Gwei of MASQ -- will not cause bans no \
+             4. Permanent Debt Allowed gwei: Receivables this small and smaller -- in gwei of MASQ -- will not cause bans no \
              matter how old they get.\n\n\
              5. Threshold Interval Sec: This interval -- in seconds -- begins after Maturity Threshold Sec for payables and after \
              Maturity Threshold Sec + Payment Grace Period Sec for receivables. During the interval, the amount of a payable that is \
-             allowed to remain unpaid, or a pending receivable that won’t cause a ban, decreases linearly from the Debt Threshold Gwei \
-             to Permanent Debt Allowed Gwei or Unban Below Gwei.\n\n\
-             6. Unban Below Gwei: When a delinquent Node has been banned due to non-payment, the receivables balance must be paid \
-             below this level -- in Gwei of MASQ -- to cause them to be unbanned. In most cases, you'll want this to be set the same \
-             as Permanent Debt Allowed Gwei."
+             allowed to remain unpaid, or a pending receivable that won’t cause a ban, decreases linearly from the Debt Threshold gwei \
+             to Permanent Debt Allowed gwei or Unban Below gwei.\n\n\
+             6. Unban Below gwei: When a delinquent Node has been banned due to non-payment, the receivables balance must be paid \
+             below this level -- in gwei of MASQ -- to cause them to be unbanned. In most cases, you'll want this to be set the same \
+             as Permanent Debt Allowed gwei."
         );
         assert_eq!(
             SCAN_INTERVALS_HELP,
@@ -966,15 +1040,8 @@ mod tests {
     }
 
     #[test]
-    fn validate_gas_price_normal_ropsten() {
+    fn validate_gas_price_normal() {
         let result = common_validators::validate_gas_price("2".to_string());
-
-        assert_eq!(result, Ok(()));
-    }
-
-    #[test]
-    fn validate_gas_price_normal_mainnet() {
-        let result = common_validators::validate_gas_price("20".to_string());
 
         assert_eq!(result, Ok(()));
     }
@@ -1015,7 +1082,7 @@ mod tests {
         assert_eq!(
             result,
             Err(String::from(
-                "Wrong format, supply positive numeric values separated by vertical bars like 111|222|333|..."
+                "Supply positive numeric values separated by vertical bars like 111|222|333|..."
             ))
         )
     }
@@ -1027,7 +1094,7 @@ mod tests {
         assert_eq!(
             result,
             Err(String::from(
-                "Wrong format, supply positive numeric values separated by vertical bars like 111|222|333|..."
+                "Supply positive numeric values separated by vertical bars like 111|222|333|..."
             ))
         )
     }
@@ -1039,19 +1106,76 @@ mod tests {
         assert_eq!(
             result,
             Err(String::from(
-                "Wrong format, supply positive numeric values separated by vertical bars like 111|222|333|..."
+                "Supply positive numeric values separated by vertical bars like 111|222|333|..."
             ))
         )
     }
 
     #[test]
+    fn validate_non_zero_u16_happy_path() {
+        let result = validate_non_zero_u16("456".to_string());
+
+        assert_eq!(result, Ok(()))
+    }
+
+    #[test]
+    fn validate_non_zero_u16_sad_path_with_zero() {
+        let result = validate_non_zero_u16("0".to_string());
+
+        assert_eq!(result, Err("0".to_string()))
+    }
+
+    #[test]
+    fn validate_non_zero_u16_sad_path_with_negative() {
+        let result = validate_non_zero_u16("-123".to_string());
+
+        assert_eq!(result, Err("-123".to_string()))
+    }
+
+    #[test]
+    fn validate_non_zero_u16_too_big() {
+        let result = validate_non_zero_u16("65536".to_string());
+
+        assert_eq!(result, Err("65536".to_string()))
+    }
+
+    #[test]
+    fn validate_non_zero_u16_sad_path_just_junk() {
+        let result = validate_non_zero_u16("garbage".to_string());
+
+        assert_eq!(result, Err("garbage".to_string()))
+    }
+
+    #[test]
     fn official_chain_names_are_reliable() {
-        let mut iterator = official_chain_names().iter();
-        assert_eq!(Chain::from(*iterator.next().unwrap()), Chain::PolyMainnet);
-        assert_eq!(Chain::from(*iterator.next().unwrap()), Chain::EthMainnet);
-        assert_eq!(Chain::from(*iterator.next().unwrap()), Chain::PolyMumbai);
-        assert_eq!(Chain::from(*iterator.next().unwrap()), Chain::EthRopsten);
-        assert_eq!(Chain::from(*iterator.next().unwrap()), Chain::Dev);
-        assert_eq!(iterator.next(), None)
+        let expected_supported_chains = [
+            Chain::PolyMainnet,
+            Chain::EthMainnet,
+            Chain::BaseMainnet,
+            Chain::BaseSepolia,
+            Chain::PolyAmoy,
+            Chain::EthRopsten,
+            Chain::Dev,
+        ]
+        .into_iter()
+        .collect::<HashSet<Chain>>();
+
+        let chain_names_recognizable_by_clap = official_chain_names();
+
+        let chains_from_clap = chain_names_recognizable_by_clap
+            .into_iter()
+            .map(|chain_name| Chain::from(*chain_name))
+            .collect::<HashSet<Chain>>();
+        let differences = chains_from_clap
+            .symmetric_difference(&expected_supported_chains)
+            .collect::<Vec<&Chain>>();
+        assert!(
+            differences.is_empty(),
+            "There are differences in the Clap schema in the collection of supported chains, \
+        between the expected values {:?} and actual {:?}, specifically {:?}",
+            expected_supported_chains,
+            chains_from_clap,
+            differences
+        );
     }
 }

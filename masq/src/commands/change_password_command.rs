@@ -9,22 +9,20 @@ use clap::{App, Arg, SubCommand};
 use masq_lib::messages::{
     UiChangePasswordRequest, UiChangePasswordResponse, UiNewPasswordBroadcast,
 };
-use masq_lib::{as_any_impl, short_writeln};
-#[cfg(test)]
-use std::any::Any;
+use masq_lib::{as_any_ref_in_trait_impl, short_writeln};
 use std::io::Write;
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct ChangePasswordCommand {
     pub old_password: Option<String>,
     pub new_password: String,
 }
 
-const CHANGE_PASSWORD_ABOUT: &str = "Changes the existing password on the Node database";
-const OLD_DB_PASSWORD_HELP: &str = "The existing password";
-const NEW_DB_PASSWORD_HELP: &str = "The new password to set";
-const SET_PASSWORD_ABOUT: &str = "Sets an initial password on the Node database";
-const SET_PASSWORD_HELP: &str = "Password to be set; must not already exist";
+const CHANGE_PASSWORD_ABOUT: &str = "Changes the existing password on the Node database.";
+const OLD_DB_PASSWORD_HELP: &str = "The existing password.";
+const NEW_DB_PASSWORD_HELP: &str = "The new password to set.";
+const SET_PASSWORD_ABOUT: &str = "Sets an initial password on the Node database.";
+const SET_PASSWORD_HELP: &str = "Password to be set; must not already exist.";
 
 impl ChangePasswordCommand {
     pub fn new_set(pieces: &[String]) -> Result<Self, String> {
@@ -81,7 +79,7 @@ impl Command for ChangePasswordCommand {
         Ok(())
     }
 
-    as_any_impl!();
+    as_any_ref_in_trait_impl!();
 }
 
 pub fn change_password_subcommand() -> App<'static, 'static> {
@@ -129,17 +127,17 @@ mod tests {
     fn constants_have_correct_values() {
         assert_eq!(
             CHANGE_PASSWORD_ABOUT,
-            "Changes the existing password on the Node database"
+            "Changes the existing password on the Node database."
         );
-        assert_eq!(OLD_DB_PASSWORD_HELP, "The existing password");
-        assert_eq!(NEW_DB_PASSWORD_HELP, "The new password to set");
+        assert_eq!(OLD_DB_PASSWORD_HELP, "The existing password.");
+        assert_eq!(NEW_DB_PASSWORD_HELP, "The new password to set.");
         assert_eq!(
             SET_PASSWORD_ABOUT,
-            "Sets an initial password on the Node database"
+            "Sets an initial password on the Node database."
         );
         assert_eq!(
             SET_PASSWORD_HELP,
-            "Password to be set; must not already exist"
+            "Password to be set; must not already exist."
         );
     }
 

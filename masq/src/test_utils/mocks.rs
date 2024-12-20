@@ -1,6 +1,6 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::command_context::{CommandContext, ContextError};
+use crate::command_context::{CommandContext, ContextError, DEFAULT_TRANSACT_TIMEOUT_MILLIS};
 use crate::command_factory::{CommandFactory, CommandFactoryError};
 use crate::command_processor::{CommandProcessor, CommandProcessorFactory};
 use crate::commands::commands_common::CommandError::Transmission;
@@ -17,13 +17,14 @@ use masq_lib::command::StdStreams;
 use masq_lib::constants::DEFAULT_UI_PORT;
 use masq_lib::test_utils::fake_stream_holder::{ByteArrayWriter, ByteArrayWriterInner};
 use masq_lib::ui_gateway::MessageBody;
-use masq_lib::utils::WrapResult;
 use std::cell::RefCell;
 use std::fmt::Arguments;
 use std::io::{Read, Write};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use std::{io, thread};
+
+pub const TRANSACT_TIMEOUT_MILLIS_FOR_TESTS: u64 = DEFAULT_TRANSACT_TIMEOUT_MILLIS;
 
 #[derive(Default)]
 pub struct CommandFactoryMock {
@@ -291,7 +292,7 @@ impl Command for MockCommand {
     fn execute(&self, context: &mut dyn CommandContext) -> Result<(), CommandError> {
         write!(context.stdout(), "MockCommand output").unwrap();
         write!(context.stderr(), "MockCommand error").unwrap();
-        match context.transact(self.message.clone(), 1000) {
+        match context.transact(self.message.clone(), TRANSACT_TIMEOUT_MILLIS_FOR_TESTS) {
             Ok(_) => self.execute_results.borrow_mut().remove(0),
             Err(e) => Err(Transmission(format!("{:?}", e))),
         }
@@ -624,7 +625,7 @@ impl InterfaceWrapper for InterfaceRawMock {
         if let Err(err) = taken_result {
             Err(err)
         } else {
-            (taken_result.unwrap() as Box<dyn WriterLock + 'static>).wrap_to_ok()
+            Ok(taken_result.unwrap() as Box<dyn WriterLock + 'static>)
         }
     }
 
